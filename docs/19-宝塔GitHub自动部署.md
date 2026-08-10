@@ -50,7 +50,7 @@ pm2 -v
 pg_dump --version
 ```
 
-要求：Node.js 24+、pnpm 11、PM2、PostgreSQL 客户端 `pg_dump`。不要为了 ERP 替换正在运行的 fzlsaas Node 环境；可以通过宝塔 Node 项目管理器或 nvm 为 ERP 单独使用 Node 24。
+要求：Node.js 24+、pnpm 11、PM2、PostgreSQL 客户端 `pg_dump`。不要为了 ERP 替换正在运行的 fzlsaas Node 22 环境；可以通过宝塔 Node 项目管理器或 nvm 为 ERP 单独安装 Node 24，并在生产 `.env` 的 `ERP_NODE_BIN` 填入 Node 24 可执行文件绝对路径。PM2 会只对锦程 ERP 使用该解释器。
 
 在宝塔 PostgreSQL 中创建独立数据库和最小权限账号，例如：
 

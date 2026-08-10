@@ -1,6 +1,7 @@
 const path = require("node:path");
 
 const releaseRoot = __dirname;
+const nodeInterpreter = process.env.ERP_NODE_BIN || "node";
 
 module.exports = {
   apps: [
@@ -8,6 +9,7 @@ module.exports = {
       name: "jincheng-erp-api",
       script: "apps/api/dist/main.js",
       cwd: releaseRoot,
+      interpreter: nodeInterpreter,
       instances: 1,
       exec_mode: "fork",
       env_production: {
@@ -31,6 +33,7 @@ module.exports = {
         "server.js",
       ),
       cwd: releaseRoot,
+      interpreter: nodeInterpreter,
       instances: 1,
       exec_mode: "fork",
       env_production: {

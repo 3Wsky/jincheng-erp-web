@@ -19,24 +19,15 @@ fi
 mkdir -p "$shared_dir" "$backup_dir" "$deploy_root/releases"
 chmod 700 "$backup_dir"
 
+if ! command -v flock >/dev/null 2>&1; then
+  echo "服务器缺少命令：flock" >&2
+  exit 4
+fi
+
 exec 9>"$lock_file"
 if ! flock -n 9; then
   echo "已有另一个 ERP 部署正在执行，本次停止。" >&2
   exit 3
-fi
-
-required_commands=(node pnpm pm2 curl pg_dump)
-for command_name in "${required_commands[@]}"; do
-  if ! command -v "$command_name" >/dev/null 2>&1; then
-    echo "服务器缺少命令：$command_name" >&2
-    exit 4
-  fi
-done
-
-node_major="$(node -p "process.versions.node.split('.')[0]")"
-if (( node_major < 24 )); then
-  echo "锦程 ERP 要求 Node.js 24 或更高版本，当前为 $(node -v)。" >&2
-  exit 5
 fi
 
 if [[ ! -f "$env_file" ]]; then
@@ -63,6 +54,28 @@ while IFS= read -r env_line || [[ -n "$env_line" ]]; do
   fi
   export "$env_key=$env_value"
 done < "$env_file"
+
+if [[ -n "${ERP_NODE_BIN:-}" ]]; then
+  if [[ ! -x "$ERP_NODE_BIN" ]]; then
+    echo "ERP_NODE_BIN 不可执行：$ERP_NODE_BIN" >&2
+    exit 5
+  fi
+  export PATH="$(dirname "$ERP_NODE_BIN"):$PATH"
+fi
+
+required_commands=(node pnpm pm2 curl pg_dump)
+for command_name in "${required_commands[@]}"; do
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    echo "服务器缺少命令：$command_name" >&2
+    exit 4
+  fi
+done
+
+node_major="$(node -p "process.versions.node.split('.')[0]")"
+if (( node_major < 24 )); then
+  echo "锦程 ERP 要求 Node.js 24 或更高版本，当前为 $(node -v)。可在 .env 设置 ERP_NODE_BIN 使用独立版本。" >&2
+  exit 5
+fi
 
 if [[ -z "${DATABASE_URL:-}" ]]; then
   echo "生产 .env 缺少 DATABASE_URL，停止部署。" >&2
