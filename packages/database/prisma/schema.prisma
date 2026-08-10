@@ -49,44 +49,66 @@ enum MovementType {
   AFTER_SALES_IN
 }
 
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum CatalogClassificationStatus {
+  PENDING
+  CONFIRMED
+}
+
+enum CatalogImportStatus {
+  PREVIEW
+  APPLIED
+  REJECTED
+}
+
+enum CatalogImportRowStatus {
+  VALID
+  INVALID
+  APPLIED
+}
+
 model Organization {
-  id        String   @id @default(uuid()) @db.Uuid
+  id        String     @id @default(uuid()) @db.Uuid
   name      String
   stores    Store[]
   employees Employee[]
   products  Product[]
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  createdAt DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime   @updatedAt @db.Timestamptz(3)
 }
 
 model Store {
-  id             String      @id @default(uuid()) @db.Uuid
-  organizationId String      @db.Uuid
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
   code           String
   name           String
   organization   Organization @relation(fields: [organizationId], references: [id])
   employees      Employee[]
   warehouses     Warehouse[]
-  createdAt      DateTime    @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime    @updatedAt @db.Timestamptz(3)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
 
   @@unique([organizationId, code])
 }
 
 model Employee {
-  id             String         @id @default(uuid()) @db.Uuid
-  organizationId String         @db.Uuid
-  storeId        String?        @db.Uuid
-  employeeNo     String
-  name           String
-  mobile         String?
-  status         EmployeeStatus @default(ACTIVE)
-  organization   Organization   @relation(fields: [organizationId], references: [id])
-  store          Store?         @relation(fields: [storeId], references: [id])
-  account        UserAccount?
+  id                 String         @id @default(uuid()) @db.Uuid
+  organizationId     String         @db.Uuid
+  storeId            String?        @db.Uuid
+  employeeNo         String
+  name               String
+  mobile             String?
+  status             EmployeeStatus @default(ACTIVE)
+  organization       Organization   @relation(fields: [organizationId], references: [id])
+  store              Store?         @relation(fields: [storeId], references: [id])
+  account            UserAccount?
   responsibleSerials SerialItem[]
-  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime       @updatedAt @db.Timestamptz(3)
+  createdAt          DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime       @updatedAt @db.Timestamptz(3)
 
   @@unique([organizationId, employeeNo])
   @@index([storeId, status])
@@ -122,13 +144,13 @@ model Permission {
 }
 
 model UserRole {
-  userId       String      @db.Uuid
-  roleId       String      @db.Uuid
-  dataScope    String
-  scopeConfig  Json?
-  approvalLimit Decimal?   @db.Decimal(18, 2)
-  user         UserAccount @relation(fields: [userId], references: [id])
-  role         Role        @relation(fields: [roleId], references: [id])
+  userId        String      @db.Uuid
+  roleId        String      @db.Uuid
+  dataScope     String
+  scopeConfig   Json?
+  approvalLimit Decimal?    @db.Decimal(18, 2)
+  user          UserAccount @relation(fields: [userId], references: [id])
+  role          Role        @relation(fields: [roleId], references: [id])
 
   @@id([userId, roleId])
 }
@@ -144,38 +166,125 @@ model RolePermission {
 }
 
 model Product {
-  id             String       @id @default(uuid()) @db.Uuid
-  organizationId String       @db.Uuid
-  code           String
-  brand          String
-  category       String
-  modelName      String
-  status         String       @default("ACTIVE")
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  skus           Sku[]
-  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
+  id                   String                      @id @default(uuid()) @db.Uuid
+  organizationId       String                      @db.Uuid
+  code                 String
+  brand                String
+  category             String
+  modelName            String
+  status               ProductStatus               @default(ACTIVE)
+  classificationStatus CatalogClassificationStatus @default(CONFIRMED)
+  organization         Organization                @relation(fields: [organizationId], references: [id])
+  skus                 Sku[]
+  importedRows         CatalogImportRow[]          @relation("ImportedProduct")
+  createdAt            DateTime                    @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime                    @updatedAt @db.Timestamptz(3)
 
   @@unique([organizationId, code])
   @@index([organizationId, brand, modelName])
 }
 
 model Sku {
-  id            String       @id @default(uuid()) @db.Uuid
-  productId     String       @db.Uuid
-  code          String       @unique
-  barcode       String?
-  color         String?
-  capacity      String?
-  serialManaged Boolean      @default(false)
-  product       Product      @relation(fields: [productId], references: [id])
-  serials       SerialItem[]
-  movements     InventoryMovement[]
-  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+  id                 String                @id @default(uuid()) @db.Uuid
+  productId          String                @db.Uuid
+  code               String                @unique
+  name               String
+  barcode            String?
+  color              String?
+  capacity           String?
+  serialManaged      Boolean               @default(false)
+  status             ProductStatus         @default(ACTIVE)
+  product            Product               @relation(fields: [productId], references: [id])
+  barcodes           SkuBarcode[]
+  externalIdentities SkuExternalIdentity[]
+  serials            SerialItem[]
+  movements          InventoryMovement[]
+  importedRows       CatalogImportRow[]    @relation("ImportedSku")
+  createdAt          DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime              @updatedAt @db.Timestamptz(3)
 
   @@index([productId])
   @@index([barcode])
+  @@index([status, code])
+}
+
+model SkuBarcode {
+  id        String   @id @default(uuid()) @db.Uuid
+  skuId     String   @db.Uuid
+  value     String   @unique
+  isPrimary Boolean  @default(false)
+  sku       Sku      @relation(fields: [skuId], references: [id])
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([skuId, isPrimary])
+}
+
+model SkuExternalIdentity {
+  id            String              @id @default(uuid()) @db.Uuid
+  skuId         String              @db.Uuid
+  importBatchId String?             @db.Uuid
+  sourceSystem  String
+  sourceId      String
+  sourcePayload Json?
+  sku           Sku                 @relation(fields: [skuId], references: [id])
+  importBatch   CatalogImportBatch? @relation(fields: [importBatchId], references: [id])
+  createdAt     DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime            @updatedAt @db.Timestamptz(3)
+
+  @@unique([sourceSystem, sourceId])
+  @@index([skuId, sourceSystem])
+  @@index([importBatchId])
+}
+
+model CatalogImportBatch {
+  id               String                @id @default(uuid()) @db.Uuid
+  sourceSystem     String
+  sourceRef        String
+  sourceCapturedAt DateTime              @db.Timestamptz(3)
+  contentHash      String                @unique
+  status           CatalogImportStatus   @default(PREVIEW)
+  totalRows        Int
+  validRows        Int
+  invalidRows      Int
+  uniqueSkus       Int
+  warehouseCount   Int
+  metadata         Json?
+  appliedAt        DateTime?             @db.Timestamptz(3)
+  rows             CatalogImportRow[]
+  externalIds      SkuExternalIdentity[]
+  createdAt        DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @db.Timestamptz(3)
+
+  @@index([sourceSystem, sourceCapturedAt])
+  @@index([status, createdAt])
+}
+
+model CatalogImportRow {
+  id                  BigInt                 @id @default(autoincrement())
+  batchId             String                 @db.Uuid
+  rowNumber           Int
+  sourceSkuCode       String
+  sourceName          String
+  sourceWarehouseCode String?
+  sourceWarehouseName String
+  sourceSerial        String?
+  quantity            Int                    @default(1)
+  status              CatalogImportRowStatus
+  errorCodes          String[]
+  normalizedData      Json?
+  appliedProductId    String?                @db.Uuid
+  appliedSkuId        String?                @db.Uuid
+  batch               CatalogImportBatch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  appliedProduct      Product?               @relation("ImportedProduct", fields: [appliedProductId], references: [id])
+  appliedSku          Sku?                   @relation("ImportedSku", fields: [appliedSkuId], references: [id])
+  createdAt           DateTime               @default(now()) @db.Timestamptz(3)
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId, status])
+  @@index([sourceSkuCode])
+  @@index([sourceSerial])
+  @@index([appliedProductId])
+  @@index([appliedSkuId])
 }
 
 model Warehouse {
@@ -197,22 +306,22 @@ model Warehouse {
 }
 
 model SerialItem {
-  id                    String       @id @default(uuid()) @db.Uuid
-  skuId                 String       @db.Uuid
-  imeiPrimary           String       @unique
-  imeiSecondary         String?      @unique
-  serialNumber          String?      @unique
-  currentWarehouseId    String       @db.Uuid
-  responsibleEmployeeId String?      @db.Uuid
+  id                    String              @id @default(uuid()) @db.Uuid
+  skuId                 String              @db.Uuid
+  imeiPrimary           String              @unique
+  imeiSecondary         String?             @unique
+  serialNumber          String?             @unique
+  currentWarehouseId    String              @db.Uuid
+  responsibleEmployeeId String?             @db.Uuid
   status                SerialStatus
-  unitCost              Decimal      @db.Decimal(18, 2)
-  receivedAt            DateTime     @db.Timestamptz(3)
-  sku                   Sku          @relation(fields: [skuId], references: [id])
-  currentWarehouse      Warehouse    @relation(fields: [currentWarehouseId], references: [id])
-  responsibleEmployee   Employee?    @relation(fields: [responsibleEmployeeId], references: [id])
+  unitCost              Decimal             @db.Decimal(18, 2)
+  receivedAt            DateTime            @db.Timestamptz(3)
+  sku                   Sku                 @relation(fields: [skuId], references: [id])
+  currentWarehouse      Warehouse           @relation(fields: [currentWarehouseId], references: [id])
+  responsibleEmployee   Employee?           @relation(fields: [responsibleEmployeeId], references: [id])
   movements             InventoryMovement[]
-  createdAt             DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt             DateTime     @updatedAt @db.Timestamptz(3)
+  createdAt             DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime            @updatedAt @db.Timestamptz(3)
 
   @@index([skuId, status])
   @@index([currentWarehouseId, status])
@@ -259,16 +368,15 @@ model AuditLog {
 }
 
 model OutboxEvent {
-  id            String   @id @default(uuid()) @db.Uuid
+  id            String    @id @default(uuid()) @db.Uuid
   aggregateType String
   aggregateId   String
   eventType     String
   payload       Json
-  occurredAt    DateTime @default(now()) @db.Timestamptz(3)
+  occurredAt    DateTime  @default(now()) @db.Timestamptz(3)
   publishedAt   DateTime? @db.Timestamptz(3)
-  retryCount    Int      @default(0)
+  retryCount    Int       @default(0)
 
   @@index([publishedAt, occurredAt])
   @@index([aggregateType, aggregateId])
 }
-
