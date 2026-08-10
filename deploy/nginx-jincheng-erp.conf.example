@@ -1,3 +1,4 @@
+# 生产域名：erp.xjshunwei.cn
 # 在宝塔中创建站点后，把以下 location 内容放入对应 server {}。
 # 域名和 SSL 证书由宝塔管理；Node 端口只监听 127.0.0.1。
 

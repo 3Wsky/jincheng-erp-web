@@ -71,7 +71,7 @@ mkdir -p /www/wwwroot/our/jincheng-erp/backups
 
 ## 5. 宝塔站点
 
-建议使用独立子域名，例如 `erp.example.com`：
+生产域名使用 `erp.xjshunwei.cn`：
 
 1. DNS 解析到现有服务器。
 2. 宝塔创建对应站点并申请 SSL。
