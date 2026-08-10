@@ -1,0 +1,99 @@
+name: Deploy Jincheng ERP
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jincheng-erp-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Quality gate and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.16.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate database schema
+        run: pnpm db:validate
+
+      - name: Generate database client
+        run: pnpm db:generate
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Package release
+        shell: bash
+        run: |
+          tar -czf /tmp/jincheng-erp-release.tar.gz \
+            package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json \
+            ecosystem.config.cjs deploy scripts/server-deploy.sh \
+            apps/api/package.json apps/api/dist \
+            apps/web/package.json apps/web/.next/standalone \
+            packages/contracts/package.json packages/contracts/dist \
+            packages/database/package.json packages/database/dist \
+            packages/database/prisma packages/database/prisma.config.ts
+
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.SERVER_PORT || 22 }}" "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Upload release
+        shell: bash
+        run: |
+          RELEASE_ID="${GITHUB_SHA}-${GITHUB_RUN_ID}"
+          scp -i ~/.ssh/deploy_key -P "${{ secrets.SERVER_PORT || 22 }}" \
+            /tmp/jincheng-erp-release.tar.gz \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/jincheng-erp-release-${RELEASE_ID}.tar.gz"
+
+      - name: Deploy on Baota server
+        shell: bash
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.SERVER_PORT || 22 }}" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "ERP_PATH='${{ secrets.ERP_DEPLOY_PATH }}' RELEASE_ID='${GITHUB_SHA}-${GITHUB_RUN_ID}' bash -s" <<'EOF'
+          set -euo pipefail
+          ERP_PATH="${ERP_PATH:-/www/wwwroot/our/jincheng-erp}"
+          RELEASE_DIR="$ERP_PATH/releases/$RELEASE_ID"
+          PACKAGE="/tmp/jincheng-erp-release-$RELEASE_ID.tar.gz"
+
+          mkdir -p "$RELEASE_DIR"
+          tar -xzf "$PACKAGE" -C "$RELEASE_DIR"
+          chmod +x "$RELEASE_DIR/scripts/server-deploy.sh"
+          "$RELEASE_DIR/scripts/server-deploy.sh" "$ERP_PATH" "$RELEASE_DIR" "$RELEASE_ID"
+          rm -f "$PACKAGE"
+          EOF
