@@ -11,6 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@jincheng/contracts": "workspace:*",
+    "@jincheng/database": "workspace:*",
     "@nestjs/common": "^11.1.28",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.1.28",

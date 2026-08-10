@@ -1,6 +1,9 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat           = "esm"
+  generatedFileExtension = "ts"
+  importFileExtension    = "js"
 }
 
 datasource db {
@@ -237,26 +240,35 @@ model SkuExternalIdentity {
 }
 
 model CatalogImportBatch {
-  id               String                @id @default(uuid()) @db.Uuid
+  id               String                 @id @default(uuid()) @db.Uuid
   sourceSystem     String
   sourceRef        String
-  sourceCapturedAt DateTime              @db.Timestamptz(3)
-  contentHash      String                @unique
-  status           CatalogImportStatus   @default(PREVIEW)
+  sourceCapturedAt DateTime               @db.Timestamptz(3)
+  contentHash      String                 @unique
+  status           CatalogImportStatus    @default(PREVIEW)
   totalRows        Int
   validRows        Int
   invalidRows      Int
   uniqueSkus       Int
   warehouseCount   Int
   metadata         Json?
-  appliedAt        DateTime?             @db.Timestamptz(3)
+  appliedAt        DateTime?              @db.Timestamptz(3)
   rows             CatalogImportRow[]
+  document         CatalogImportDocument?
   externalIds      SkuExternalIdentity[]
-  createdAt        DateTime              @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime              @updatedAt @db.Timestamptz(3)
+  createdAt        DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime               @updatedAt @db.Timestamptz(3)
 
   @@index([sourceSystem, sourceCapturedAt])
   @@index([status, createdAt])
+}
+
+model CatalogImportDocument {
+  batchId   String             @id @db.Uuid
+  fileName  String
+  content   Bytes
+  batch     CatalogImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  createdAt DateTime           @default(now()) @db.Timestamptz(3)
 }
 
 model CatalogImportRow {
