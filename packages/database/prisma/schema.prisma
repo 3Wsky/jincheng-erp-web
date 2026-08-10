@@ -1,0 +1,274 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  LEAVING
+  INACTIVE
+}
+
+enum WarehouseType {
+  COMPANY
+  STORE
+  PERSONAL
+  AFTER_SALES
+  ABNORMAL
+}
+
+enum SerialStatus {
+  NORMAL
+  LOCKED
+  IN_TRANSIT
+  PENDING_CONFIRM
+  PERSONAL
+  SOLD
+  AFTER_SALES
+  ABNORMAL
+}
+
+enum MovementType {
+  PURCHASE_RECEIPT
+  TRANSFER_OUT
+  TRANSFER_IN
+  PERSONAL_ISSUE
+  PERSONAL_RETURN
+  SALE
+  SALE_RETURN
+  STOCK_GAIN
+  STOCK_LOSS
+  DAMAGE
+  BORROW
+  BORROW_RETURN
+  AFTER_SALES_OUT
+  AFTER_SALES_IN
+}
+
+model Organization {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  stores    Store[]
+  employees Employee[]
+  products  Product[]
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+}
+
+model Store {
+  id             String      @id @default(uuid()) @db.Uuid
+  organizationId String      @db.Uuid
+  code           String
+  name           String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  employees      Employee[]
+  warehouses     Warehouse[]
+  createdAt      DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime    @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, code])
+}
+
+model Employee {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @db.Uuid
+  storeId        String?        @db.Uuid
+  employeeNo     String
+  name           String
+  mobile         String?
+  status         EmployeeStatus @default(ACTIVE)
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  store          Store?         @relation(fields: [storeId], references: [id])
+  account        UserAccount?
+  responsibleSerials SerialItem[]
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, employeeNo])
+  @@index([storeId, status])
+}
+
+model UserAccount {
+  id           String     @id @default(uuid()) @db.Uuid
+  employeeId   String     @unique @db.Uuid
+  username     String     @unique
+  passwordHash String
+  isFrozen     Boolean    @default(false)
+  employee     Employee   @relation(fields: [employeeId], references: [id])
+  roles        UserRole[]
+  auditLogs    AuditLog[]
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @db.Timestamptz(3)
+}
+
+model Role {
+  id          String           @id @default(uuid()) @db.Uuid
+  code        String           @unique
+  name        String
+  users       UserRole[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id       String           @id @default(uuid()) @db.Uuid
+  code     String           @unique
+  resource String
+  action   String
+  roles    RolePermission[]
+}
+
+model UserRole {
+  userId       String      @db.Uuid
+  roleId       String      @db.Uuid
+  dataScope    String
+  scopeConfig  Json?
+  approvalLimit Decimal?   @db.Decimal(18, 2)
+  user         UserAccount @relation(fields: [userId], references: [id])
+  role         Role        @relation(fields: [roleId], references: [id])
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String     @db.Uuid
+  permissionId String     @db.Uuid
+  fieldPolicy  Json?
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+}
+
+model Product {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  code           String
+  brand          String
+  category       String
+  modelName      String
+  status         String       @default("ACTIVE")
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  skus           Sku[]
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, code])
+  @@index([organizationId, brand, modelName])
+}
+
+model Sku {
+  id            String       @id @default(uuid()) @db.Uuid
+  productId     String       @db.Uuid
+  code          String       @unique
+  barcode       String?
+  color         String?
+  capacity      String?
+  serialManaged Boolean      @default(false)
+  product       Product      @relation(fields: [productId], references: [id])
+  serials       SerialItem[]
+  movements     InventoryMovement[]
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@index([productId])
+  @@index([barcode])
+}
+
+model Warehouse {
+  id                String              @id @default(uuid()) @db.Uuid
+  storeId           String?             @db.Uuid
+  ownerEmployeeId   String?             @db.Uuid
+  code              String              @unique
+  name              String
+  type              WarehouseType
+  store             Store?              @relation(fields: [storeId], references: [id])
+  serials           SerialItem[]
+  outgoingMovements InventoryMovement[] @relation("MovementFrom")
+  incomingMovements InventoryMovement[] @relation("MovementTo")
+  createdAt         DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @db.Timestamptz(3)
+
+  @@index([storeId, type])
+  @@index([ownerEmployeeId])
+}
+
+model SerialItem {
+  id                    String       @id @default(uuid()) @db.Uuid
+  skuId                 String       @db.Uuid
+  imeiPrimary           String       @unique
+  imeiSecondary         String?      @unique
+  serialNumber          String?      @unique
+  currentWarehouseId    String       @db.Uuid
+  responsibleEmployeeId String?      @db.Uuid
+  status                SerialStatus
+  unitCost              Decimal      @db.Decimal(18, 2)
+  receivedAt            DateTime     @db.Timestamptz(3)
+  sku                   Sku          @relation(fields: [skuId], references: [id])
+  currentWarehouse      Warehouse    @relation(fields: [currentWarehouseId], references: [id])
+  responsibleEmployee   Employee?    @relation(fields: [responsibleEmployeeId], references: [id])
+  movements             InventoryMovement[]
+  createdAt             DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@index([skuId, status])
+  @@index([currentWarehouseId, status])
+  @@index([responsibleEmployeeId, status])
+}
+
+model InventoryMovement {
+  id              String       @id @default(uuid()) @db.Uuid
+  documentId      String       @db.Uuid
+  documentType    String
+  movementType    MovementType
+  skuId           String       @db.Uuid
+  serialId        String?      @db.Uuid
+  quantity        Int
+  fromWarehouseId String?      @db.Uuid
+  toWarehouseId   String?      @db.Uuid
+  occurredAt      DateTime     @db.Timestamptz(3)
+  sku             Sku          @relation(fields: [skuId], references: [id])
+  serial          SerialItem?  @relation(fields: [serialId], references: [id])
+  fromWarehouse   Warehouse?   @relation("MovementFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse     Warehouse?   @relation("MovementTo", fields: [toWarehouseId], references: [id])
+  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@index([documentId, documentType])
+  @@index([skuId, occurredAt])
+  @@index([serialId, occurredAt])
+}
+
+model AuditLog {
+  id          BigInt       @id @default(autoincrement())
+  actorUserId String?      @db.Uuid
+  action      String
+  resource    String
+  resourceId  String
+  beforeData  Json?
+  afterData   Json?
+  requestId   String?
+  ipAddress   String?
+  actor       UserAccount? @relation(fields: [actorUserId], references: [id])
+  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@index([resource, resourceId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+model OutboxEvent {
+  id            String   @id @default(uuid()) @db.Uuid
+  aggregateType String
+  aggregateId   String
+  eventType     String
+  payload       Json
+  occurredAt    DateTime @default(now()) @db.Timestamptz(3)
+  publishedAt   DateTime? @db.Timestamptz(3)
+  retryCount    Int      @default(0)
+
+  @@index([publishedAt, occurredAt])
+  @@index([aggregateType, aggregateId])
+}
+
