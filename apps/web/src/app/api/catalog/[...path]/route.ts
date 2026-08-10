@@ -32,6 +32,15 @@ async function proxy(
       body: hasBody ? await request.text() : undefined,
       cache: "no-store",
     });
+    if (response.status >= 500) {
+      return Response.json(
+        {
+          code: "CATALOG_SERVICE_UNAVAILABLE",
+          message: "货品服务暂时不可用，请确认后端和数据库已启动",
+        },
+        { status: response.status },
+      );
+    }
     return new Response(response.body, {
       status: response.status,
       headers: {
