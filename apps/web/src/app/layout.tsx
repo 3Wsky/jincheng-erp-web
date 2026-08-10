@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
+import { ErpShell } from "@/components/erp-shell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "锦程 ERP",
-  description: "锦程内部 ERP 网站端",
+  title: {
+    default: "锦程 ERP · 企业经营管理平台",
+    template: "%s · 锦程 ERP",
+  },
+  description: "锦程科技企业级进销存、客户与经营管理平台",
 };
 
 export default function RootLayout({
@@ -11,7 +15,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <ErpShell>{children}</ErpShell>
+      </body>
     </html>
   );
 }
