@@ -29,7 +29,6 @@ export class AuthController {
   login(
     @Body() body: LoginDto,
     @Ip() ip: string,
-    @Headers("x-request-id") requestId?: string,
   ) {
     return this.auth.login(body, ip);
   }

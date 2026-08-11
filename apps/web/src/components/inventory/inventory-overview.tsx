@@ -380,7 +380,11 @@ export function InventoryOverview() {
   }, []);
 
   useEffect(() => {
-    void load();
+    const timeoutId = window.setTimeout(() => {
+      void load();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
   }, [load]);
 
   /** 数据适配:分类筛选 + 仓库搜索 → 公司/个人两组独立数据 */
