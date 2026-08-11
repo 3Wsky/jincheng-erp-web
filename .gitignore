@@ -12,3 +12,10 @@ coverage/
 *.tsbuildinfo
 packages/database/src/generated/
 packages/database/prisma/migrations/*_draft/
+
+# 敏感与临时文件(公开仓库防护)
+.workbuddy/
+.pnpm-store/
+.tmp-chrome-profile*/
+scripts/grasp/*.json
+scripts/grasp/*.png

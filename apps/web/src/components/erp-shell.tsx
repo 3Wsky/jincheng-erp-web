@@ -4,12 +4,18 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { ErpIcon } from "./erp-icon";
+import { UserMenu } from "./user-menu";
 import { navigationGroups } from "@/lib/erp-navigation";
 
 export function ErpShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // 登录页使用独立布局，不渲染 ERP 外壳
+  if (pathname === "/login") {
+    return <>{children}</>;
+  }
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -111,14 +117,7 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
             <Link aria-label="消息与异常" className="icon-button has-dot" href="/notifications">
               <ErpIcon name="bell" />
             </Link>
-            <button className="profile-button" type="button">
-              <span className="avatar">管</span>
-              <span className="profile-copy">
-                <strong>系统管理员</strong>
-                <small>总部 · 管理员</small>
-              </span>
-              <ErpIcon name="chevron" size={14} />
-            </button>
+            <UserMenu />
           </div>
         </header>
         <div className="erp-page-stage">{children}</div>

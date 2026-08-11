@@ -15,7 +15,9 @@
     "format": "prettier --write .",
     "release:prod": "node scripts/release-production.mjs",
     "db:validate": "pnpm --filter @jincheng/database prisma:validate",
-    "db:generate": "pnpm --filter @jincheng/database prisma:generate"
+    "db:generate": "pnpm --filter @jincheng/database prisma:generate",
+    "db:migrate": "pnpm --filter @jincheng/database prisma:migrate",
+    "db:seed": "pnpm --filter @jincheng/database db:seed"
   },
   "devDependencies": {
     "prettier": "^3.6.0",

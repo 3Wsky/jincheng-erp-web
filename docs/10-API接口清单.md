@@ -40,6 +40,32 @@
 
 货品写接口在开发环境可本机调试；生产环境必须配置 `CATALOG_WRITE_KEY`，否则默认关闭。该密钥只是登录/RBAC 完成前的部署保护，不替代 Role × DataScope × Action × Field × Approval；RBAC 接入完成前不得把接口标记为“已验收”。
 
+## 2.2 已实现的认证、组织、库存接口
+
+| 编号         | 方法与路径                                   | 作用                                           | 当前状态 |
+| ------------ | -------------------------------------------- | ---------------------------------------------- | -------- |
+| API-AUTH-001 | `POST /auth/login`                           | 账号密码登录，返回访问令牌与当前用户           | VERIFY   |
+| API-AUTH-002 | `GET /auth/me`                               | 当前用户信息（含角色与权限）                   | VERIFY   |
+| API-AUTH-003 | `PATCH /auth/password`                       | 修改当前账号密码                               | VERIFY   |
+| API-AUTH-004 | `POST /auth/logout`                          | 登出并记录审计                                 | VERIFY   |
+| API-ORG-001  | `GET /organizations`                         | 组织列表                                       | VERIFY   |
+| API-ORG-002  | `POST /organizations`                        | 创建组织                                       | VERIFY   |
+| API-ORG-003  | `PATCH /organizations/{id}`                  | 修改组织名称                                   | VERIFY   |
+| API-ORG-004  | `GET /organizations/{id}/stores`             | 门店列表                                       | VERIFY   |
+| API-ORG-005  | `POST /stores`                               | 创建门店                                       | VERIFY   |
+| API-ORG-006  | `PATCH /stores/{id}`                         | 修改门店                                       | VERIFY   |
+| API-ORG-007  | `GET /organizations/{id}/employees`          | 分页查询员工                                   | VERIFY   |
+| API-ORG-008  | `POST /employees`                            | 创建员工档案                                   | VERIFY   |
+| API-ORG-009  | `PATCH /employees/{id}`                      | 修改员工                                       | VERIFY   |
+| API-ORG-010  | `POST /accounts`                             | 为员工开通账号并分配角色                       | VERIFY   |
+| API-ORG-011  | `PATCH /accounts/{id}`                       | 冻结/解冻、重置密码、调整角色                  | VERIFY   |
+| API-ORG-012  | `GET /roles`                                 | 角色列表（含权限码）                           | VERIFY   |
+| API-ORG-013  | `GET /permissions`                           | 权限清单                                       | VERIFY   |
+| API-INV-001  | `GET /inventory/overview`                    | 仓库总览：按仓库聚合序列号，区分公司/个人      | VERIFY   |
+| API-INV-002  | `GET /inventory/warehouses/{id}/serials`     | 指定仓库序列号明细（分页，支持 SKU/IMEI/SN 搜索） | VERIFY   |
+
+登录/组织/库存接口均接入 JWT 认证；写接口落审计日志。库存期初迁移使用统一期初单据 + `InventoryMovement` 流水，不直接修改余额。
+
 ## 3. 关键命令接口草案
 
 | 动作         | 方法与路径                            | 幂等 | 备注                     |
