@@ -23,14 +23,21 @@
 
 | 分组 | 模块 | 路由 | 当前状态 |
 |---|---|---|---|
-| 经营总览 | 经营工作台 | `/` | VERIFY |
-| 经营总览 | 全局查货、待办、消息 | `/search`、`/tasks`、`/notifications` | 页面框架 |
+| 经营总览 | 经营工作台 | `/` | VERIFY，指标接真实接口（库存总览/货品主档/在途调拨，2026-08-12） |
+| 经营总览 | 全局查货 | `/search` | VERIFY，真实功能（跨仓搜索 + 单机时间线） |
+| 经营总览 | 待办、消息 | `/tasks`、`/notifications` | 页面框架 |
 | 进销存 | 货品中心 | `/catalog/products` | VERIFY，真实功能 |
-| 进销存 | 库存、采购、调拨 | `/inventory`、`/procurement/orders`、`/transfers` | 页面框架 |
+| 进销存 | 库存 | `/inventory` | VERIFY，真实功能 |
+| 进销存 | 盘点 | `/inventory/stocktakes` | VERIFY，真实功能（整仓盘点 + 封存 + 差异过账，2026-08-12） |
+| 进销存 | 调拨 | `/transfers` | VERIFY，真实功能（双向握手全流程） |
+| 进销存 | 采购 | `/procurement/orders` | VERIFY，真实功能（三维度状态机 + 扫码收货入库） |
 | 进销存 | 销售管理 | `/sales/orders` | 页面框架，业务 BLOCKED |
 | 客户经营 | 客户、报表、驾驶舱 | `/crm/customers`、`/reports/daily`、`/reports/executive` | 页面框架 |
 | 财务 | 业务资金 | `/finance/ledger` | 页面框架，业务 BLOCKED |
-| 组织系统 | 组织、权限、集成、系统 | `/admin/organization`、`/admin/roles`、`/integrations`、`/system/health` | 页面框架 |
+| 组织系统 | 组织与员工 | `/admin/organization` | VERIFY，真实功能（组织/门店/员工/账号管理，2026-08-11） |
+| 组织系统 | 权限与审批 | `/admin/roles` | VERIFY，真实功能（Role×Action 只读矩阵，2026-08-12；DataScope/Field/Approval 与编辑待矩阵签字） |
+| 组织系统 | 系统设置 | `/system/health` | VERIFY，真实功能（健康卡 + Outbox + 审计日志查询，2026-08-12） |
+| 组织系统 | 集成中心 | `/integrations` | 页面框架 |
 
 ## 4. 视觉与交互标准
 

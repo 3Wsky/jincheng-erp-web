@@ -116,6 +116,7 @@ export class CatalogService {
   async createProduct(
     input: CreateCatalogProductDto,
     requestId: string = randomUUID(),
+    actorUserId: string | null = null,
   ) {
     const skuCodes = input.skus.map((sku) => sku.code.trim());
     if (new Set(skuCodes).size !== skuCodes.length) {
@@ -147,6 +148,7 @@ export class CatalogService {
           resource: "Product",
           resourceId: product.id,
           requestId,
+          actorUserId,
           afterData: { code: product.code, skuCount: product.skus.length },
         });
         return product;
@@ -161,6 +163,7 @@ export class CatalogService {
     id: string,
     input: UpdateCatalogProductDto,
     requestId: string = randomUUID(),
+    actorUserId: string | null = null,
   ) {
     const data = compact({
       brand: input.brand?.trim(),
@@ -189,6 +192,7 @@ export class CatalogService {
         resource: "Product",
         resourceId: id,
         requestId,
+        actorUserId,
         beforeData: summarizeProduct(before),
         afterData: summarizeProduct(product),
       });
@@ -201,6 +205,7 @@ export class CatalogService {
     productId: string,
     input: CreateCatalogSkuDto,
     requestId: string = randomUUID(),
+    actorUserId: string | null = null,
   ) {
     assertUniqueBarcodes([input]);
     try {
@@ -217,6 +222,7 @@ export class CatalogService {
           resource: "Sku",
           resourceId: sku.id,
           requestId,
+          actorUserId,
           afterData: { code: sku.code, productId },
         });
         return tx.product.findUniqueOrThrow({
@@ -234,6 +240,7 @@ export class CatalogService {
     id: string,
     input: UpdateCatalogSkuDto,
     requestId: string = randomUUID(),
+    actorUserId: string | null = null,
   ) {
     if (Object.values(input).every((value) => value === undefined)) {
       throw new BadRequestException("至少提供一个待修改字段");
@@ -282,6 +289,8 @@ export class CatalogService {
           barcode: input.barcode?.trim(),
           color: input.color?.trim(),
           capacity: input.capacity?.trim(),
+          // null=清除定价,undefined=不修改(compact 只滤 undefined)
+          retailPrice: input.retailPrice as string | null | undefined,
           serialManaged: input.serialManaged,
           status: input.status as ProductStatus | undefined,
         });
@@ -307,6 +316,7 @@ export class CatalogService {
           resource: "Sku",
           resourceId: id,
           requestId,
+          actorUserId,
           beforeData: {
             code: before.code,
             name: before.name,
@@ -426,6 +436,7 @@ export class CatalogService {
     batchId: string,
     input: ApplyCatalogImportDto,
     requestId: string = randomUUID(),
+    actorUserId: string | null = null,
   ) {
     return this.database.client.$transaction(
       async (tx) => {
@@ -651,6 +662,7 @@ export class CatalogService {
           resource: "CatalogImportBatch",
           resourceId: batchId,
           requestId,
+          actorUserId,
           afterData: { organizationId: input.organizationId, ...summary },
         });
         return { batch: mapBatch(updatedBatch), ...summary };
@@ -668,6 +680,7 @@ function skuCreateData(input: CreateCatalogSkuDto) {
     barcode: input.barcode?.trim(),
     color: input.color?.trim(),
     capacity: input.capacity?.trim(),
+    retailPrice: input.retailPrice ?? null,
     serialManaged: input.serialManaged,
     status: ProductStatus.ACTIVE,
     barcodes: {
@@ -717,6 +730,7 @@ function mapProduct(product: ProductRecord) {
       barcodes: sku.barcodes.map((barcode) => barcode.value),
       color: sku.color,
       capacity: sku.capacity,
+      retailPrice: sku.retailPrice?.toString() ?? null,
       serialManaged: sku.serialManaged,
       status: sku.status,
     })),
@@ -821,6 +835,7 @@ async function writeAuditAndEvent(
     resource: string;
     resourceId: string;
     requestId: string;
+    actorUserId?: string | null;
     beforeData?: Prisma.InputJsonObject;
     afterData: Prisma.InputJsonObject;
   },
@@ -831,6 +846,7 @@ async function writeAuditAndEvent(
       resource: input.resource,
       resourceId: input.resourceId,
       requestId: input.requestId,
+      actorUserId: input.actorUserId ?? null,
       beforeData: input.beforeData,
       afterData: input.afterData,
     },

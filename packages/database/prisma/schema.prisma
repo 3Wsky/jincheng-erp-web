@@ -57,6 +57,78 @@ enum ProductStatus {
   INACTIVE
 }
 
+/// 调拨主单状态机(docs/12 第 2 节)
+enum TransferStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  LOCKED
+  IN_TRANSIT
+  PARTIALLY_RECEIVED
+  RECEIVED
+  EXCEPTION
+  COMPLETED
+  CANCELLED
+}
+
+/// 调拨明细状态:一台序列号商品一行
+enum TransferLineStatus {
+  PENDING
+  LOCKED
+  SHIPPED
+  RECEIVED
+  EXCEPTION
+}
+
+/// 调拨差异类型:少货/错货串号/损坏/拒收/超时未收
+enum TransferExceptionType {
+  MISSING
+  WRONG_ITEM
+  DAMAGED
+  REJECTED
+  TIMEOUT
+}
+
+/// 采购主单审批维度(docs/12 第 3 节:审批/付款/收货三维度独立推进)
+enum PurchaseApprovalStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// 采购主单付款维度:UNPAID → PARTIALLY_PAID → PAID
+enum PurchasePaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+}
+
+/// 采购主单收货维度:NOT_RECEIVED → PARTIALLY_RECEIVED → RECEIVED
+enum PurchaseReceiptStatus {
+  NOT_RECEIVED
+  PARTIALLY_RECEIVED
+  RECEIVED
+}
+
+/// 盘点单状态机(docs/12 第 6 节);COUNTING/SUBMITTED/APPROVED 期间仓库封存
+enum StocktakeStatus {
+  DRAFT
+  COUNTING
+  SUBMITTED
+  APPROVED
+  POSTED
+  CANCELLED
+}
+
+/// 盘点差异类型:MISSING 盘亏(账面有实盘无);UNEXPECTED 盘盈或串仓(实盘有账面无/在他仓)
+enum StocktakeDifferenceType {
+  MISSING
+  UNEXPECTED
+}
+
 enum CatalogClassificationStatus {
   PENDING
   CONFIRMED
@@ -195,6 +267,8 @@ model Sku {
   barcode            String?
   color              String?
   capacity           String?
+  /// 零售指导价(2026-08-12 验收需求);null=未定价。批发/会员/门店价等多级价格待销售口径签字
+  retailPrice        Decimal?              @db.Decimal(18, 2)
   serialManaged      Boolean               @default(false)
   status             ProductStatus         @default(ACTIVE)
   product            Product               @relation(fields: [productId], references: [id])
@@ -202,6 +276,8 @@ model Sku {
   externalIdentities SkuExternalIdentity[]
   serials            SerialItem[]
   movements          InventoryMovement[]
+  transferLines      TransferLine[]
+  purchaseLines      PurchaseLine[]
   importedRows       CatalogImportRow[]    @relation("ImportedSku")
   createdAt          DateTime              @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime              @updatedAt @db.Timestamptz(3)
@@ -310,11 +386,126 @@ model Warehouse {
   serials           SerialItem[]
   outgoingMovements InventoryMovement[] @relation("MovementFrom")
   incomingMovements InventoryMovement[] @relation("MovementTo")
+  transfersOut      TransferOrder[]     @relation("TransferFrom")
+  transfersIn       TransferOrder[]     @relation("TransferTo")
+  purchaseOrders    PurchaseOrder[]     @relation("PurchaseReceiving")
+  stocktakes        StocktakeOrder[]
   createdAt         DateTime            @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime            @updatedAt @db.Timestamptz(3)
 
   @@index([storeId, type])
   @@index([ownerEmployeeId])
+}
+
+/// 盘点单:按仓库整仓盘点。COUNTING/SUBMITTED/APPROVED 期间该仓库封存,
+/// 禁止调拨(建单/锁定/发出/接收)与采购收货入库(2026-08-12 业务确认:盘库期间不能调库)。
+/// 操作人字段存 UserAccount.id,不建外键(与调拨/采购约定一致)。
+model StocktakeOrder {
+  id             String                @id @default(uuid()) @db.Uuid
+  code           String                @unique
+  warehouseId    String                @db.Uuid
+  status         StocktakeStatus       @default(DRAFT)
+  /// 开盘时账面在库序列号数快照(NORMAL/LOCKED/ABNORMAL,不含在途)
+  snapshotCount  Int?
+  remark         String?
+  createdById    String                @db.Uuid
+  startedAt      DateTime?             @db.Timestamptz(3)
+  submittedAt    DateTime?             @db.Timestamptz(3)
+  approvedById   String?               @db.Uuid
+  approvedAt     DateTime?             @db.Timestamptz(3)
+  rejectedReason String?
+  postedAt       DateTime?             @db.Timestamptz(3)
+  cancelledAt    DateTime?             @db.Timestamptz(3)
+  warehouse      Warehouse             @relation(fields: [warehouseId], references: [id])
+  scans          StocktakeScan[]
+  differences    StocktakeDifference[]
+  createdAt      DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime              @updatedAt @db.Timestamptz(3)
+
+  @@index([warehouseId, status])
+  @@index([status, createdAt])
+}
+
+/// 盘点实盘扫描记录:一机一条,同一盘点单内 IMEI 去重
+model StocktakeScan {
+  id          String         @id @default(uuid()) @db.Uuid
+  stocktakeId String         @db.Uuid
+  imei        String
+  /// 匹配到的账面序列号(按 IMEI 主/副匹配;系统外设备为 null)
+  serialId    String?        @db.Uuid
+  scannedById String         @db.Uuid
+  scannedAt   DateTime       @default(now()) @db.Timestamptz(3)
+  stocktake   StocktakeOrder @relation(fields: [stocktakeId], references: [id])
+
+  @@unique([stocktakeId, imei])
+  @@index([stocktakeId])
+}
+
+/// 盘点差异快照(提交时计算,驳回重盘时清除重算;非业务事实,过账后固化)
+model StocktakeDifference {
+  id          String                  @id @default(uuid()) @db.Uuid
+  stocktakeId String                  @db.Uuid
+  type        StocktakeDifferenceType
+  serialId    String?                 @db.Uuid
+  imei        String
+  note        String?
+  stocktake   StocktakeOrder          @relation(fields: [stocktakeId], references: [id])
+  createdAt   DateTime                @default(now()) @db.Timestamptz(3)
+
+  @@index([stocktakeId, type])
+}
+
+/// 调拨主单:仓库间序列号商品调拨,双向握手(发出方/接收方分别确认)。
+/// 操作人字段存 UserAccount.id,不建外键关系(与 Warehouse.ownerEmployeeId 约定一致)。
+model TransferOrder {
+  id              String         @id @default(uuid()) @db.Uuid
+  code            String         @unique
+  status          TransferStatus @default(DRAFT)
+  fromWarehouseId String         @db.Uuid
+  toWarehouseId   String         @db.Uuid
+  remark          String?
+  createdById     String         @db.Uuid
+  submittedAt     DateTime?      @db.Timestamptz(3)
+  approvedById    String?        @db.Uuid
+  approvedAt      DateTime?      @db.Timestamptz(3)
+  rejectedReason  String?
+  lockedAt        DateTime?      @db.Timestamptz(3)
+  shippedById     String?        @db.Uuid
+  shippedAt       DateTime?      @db.Timestamptz(3)
+  receivedAt      DateTime?      @db.Timestamptz(3)
+  completedAt     DateTime?      @db.Timestamptz(3)
+  cancelledAt     DateTime?      @db.Timestamptz(3)
+  fromWarehouse   Warehouse      @relation("TransferFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse     Warehouse      @relation("TransferTo", fields: [toWarehouseId], references: [id])
+  lines           TransferLine[]
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+
+  @@index([status, createdAt])
+  @@index([fromWarehouseId, status])
+  @@index([toWarehouseId, status])
+}
+
+/// 调拨明细:序列号商品一机一行;差异(少货/错货/损坏/拒收/超时)记录在行上
+model TransferLine {
+  id            String                 @id @default(uuid()) @db.Uuid
+  transferId    String                 @db.Uuid
+  serialId      String                 @db.Uuid
+  skuId         String                 @db.Uuid
+  status        TransferLineStatus     @default(PENDING)
+  exceptionType TransferExceptionType?
+  exceptionNote String?
+  receivedById  String?                @db.Uuid
+  receivedAt    DateTime?              @db.Timestamptz(3)
+  transfer      TransferOrder          @relation(fields: [transferId], references: [id])
+  serial        SerialItem             @relation(fields: [serialId], references: [id])
+  sku           Sku                    @relation(fields: [skuId], references: [id])
+  createdAt     DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime               @updatedAt @db.Timestamptz(3)
+
+  @@unique([transferId, serialId])
+  @@index([serialId, status])
+  @@index([transferId, status])
 }
 
 model SerialItem {
@@ -332,6 +523,7 @@ model SerialItem {
   currentWarehouse      Warehouse           @relation(fields: [currentWarehouseId], references: [id])
   responsibleEmployee   Employee?           @relation(fields: [responsibleEmployeeId], references: [id])
   movements             InventoryMovement[]
+  transferLines         TransferLine[]
   createdAt             DateTime            @default(now()) @db.Timestamptz(3)
   updatedAt             DateTime            @updatedAt @db.Timestamptz(3)
 
@@ -391,4 +583,118 @@ model OutboxEvent {
 
   @@index([publishedAt, occurredAt])
   @@index([aggregateType, aggregateId])
+}
+
+/// 供应商主档:status 复用 ProductStatus(ACTIVE/INACTIVE),停用后不可再建采购单
+model Supplier {
+  id             String          @id @default(uuid()) @db.Uuid
+  code           String          @unique
+  name           String
+  contactName    String?
+  contactPhone   String?
+  status         ProductStatus   @default(ACTIVE)
+  purchaseOrders PurchaseOrder[]
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
+
+  @@index([status, name])
+}
+
+/// 采购主单:聚合审批/付款/收货三个维度(docs/12 第 3 节),completedAt 非空 = 已完成。
+/// paidAmount 是付款单据(PurchasePayment)的聚合缓存,每次付款在同一事务内累加,
+/// 非手工修改(AGENTS 第 1 条:余额变化由业务单据驱动)。
+/// 操作人字段(createdById/approvedById)存 UserAccount.id,不建外键(与 TransferOrder 约定一致)。
+model PurchaseOrder {
+  id             String                 @id @default(uuid()) @db.Uuid
+  code           String                 @unique
+  supplierId     String                 @db.Uuid
+  warehouseId    String                 @db.Uuid
+  approvalStatus PurchaseApprovalStatus @default(DRAFT)
+  paymentStatus  PurchasePaymentStatus  @default(UNPAID)
+  receiptStatus  PurchaseReceiptStatus  @default(NOT_RECEIVED)
+  totalAmount    Decimal                @db.Decimal(18, 2)
+  paidAmount     Decimal                @default(0) @db.Decimal(18, 2)
+  remark         String?
+  createdById    String                 @db.Uuid
+  submittedAt    DateTime?              @db.Timestamptz(3)
+  approvedById   String?                @db.Uuid
+  approvedAt     DateTime?              @db.Timestamptz(3)
+  rejectedReason String?
+  completedAt    DateTime?              @db.Timestamptz(3)
+  cancelledAt    DateTime?              @db.Timestamptz(3)
+  supplier       Supplier               @relation(fields: [supplierId], references: [id])
+  warehouse      Warehouse              @relation("PurchaseReceiving", fields: [warehouseId], references: [id])
+  lines          PurchaseLine[]
+  payments       PurchasePayment[]
+  receipts       PurchaseReceipt[]
+  createdAt      DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime               @updatedAt @db.Timestamptz(3)
+
+  @@index([approvalStatus, createdAt])
+  @@index([supplierId])
+}
+
+/// 采购明细行:按 SKU + 数量下单,收货时逐台生成序列号并累加 receivedQuantity
+model PurchaseLine {
+  id               String                @id @default(uuid()) @db.Uuid
+  purchaseOrderId  String                @db.Uuid
+  skuId            String                @db.Uuid
+  quantity         Int
+  unitPrice        Decimal               @db.Decimal(18, 2)
+  receivedQuantity Int                   @default(0)
+  purchaseOrder    PurchaseOrder         @relation(fields: [purchaseOrderId], references: [id])
+  sku              Sku                   @relation(fields: [skuId], references: [id])
+  receiptItems     PurchaseReceiptItem[]
+  createdAt        DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @db.Timestamptz(3)
+
+  @@unique([purchaseOrderId, skuId])
+  @@index([skuId])
+}
+
+/// 采购付款单据:资金变化由本单据驱动(AGENTS 第 1 条),主单 paidAmount 同事务累加
+model PurchasePayment {
+  id              String        @id @default(uuid()) @db.Uuid
+  purchaseOrderId String        @db.Uuid
+  amount          Decimal       @db.Decimal(18, 2)
+  method          String
+  note            String?
+  createdById     String        @db.Uuid
+  paidAt          DateTime      @db.Timestamptz(3)
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@index([purchaseOrderId, paidAt])
+}
+
+/// 采购收货批次:一次扫码收货一批,单号 RCP- 前缀
+model PurchaseReceipt {
+  id              String                @id @default(uuid()) @db.Uuid
+  purchaseOrderId String                @db.Uuid
+  code            String                @unique
+  receivedById    String                @db.Uuid
+  receivedAt      DateTime              @db.Timestamptz(3)
+  note            String?
+  purchaseOrder   PurchaseOrder         @relation(fields: [purchaseOrderId], references: [id])
+  items           PurchaseReceiptItem[]
+  createdAt       DateTime              @default(now()) @db.Timestamptz(3)
+
+  @@index([purchaseOrderId, receivedAt])
+}
+
+/// 采购收货明细:一台序列号一行;serialId 指向收货时创建的 SerialItem,
+/// 不建外键(与操作人字段约定一致,SerialItem 生命周期独立于采购单)
+model PurchaseReceiptItem {
+  id             String          @id @default(uuid()) @db.Uuid
+  receiptId      String          @db.Uuid
+  purchaseLineId String          @db.Uuid
+  serialId       String          @db.Uuid
+  imeiPrimary    String
+  receipt        PurchaseReceipt @relation(fields: [receiptId], references: [id])
+  purchaseLine   PurchaseLine    @relation(fields: [purchaseLineId], references: [id])
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@index([receiptId])
+  @@index([purchaseLineId])
+  @@index([serialId])
 }

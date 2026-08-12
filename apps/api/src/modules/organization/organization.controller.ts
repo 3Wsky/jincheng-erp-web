@@ -112,6 +112,22 @@ export class OrganizationController {
     return this.organization.updateStore(id, body, this.requestOf(request, requestId));
   }
 
+  @Post("organizations/:organizationId/stores/sync-from-warehouses")
+  @UseGuards(requirePermissions("organization:write"))
+  @ApiOperation({
+    summary: "从门店类仓库同步门店主数据（幂等；总仓/售后/个人仓不参与）",
+  })
+  syncStoresFromWarehouses(
+    @Param("organizationId") organizationId: string,
+    @Req() request: AuthenticatedRequest,
+    @Headers("x-request-id") requestId?: string,
+  ) {
+    return this.organization.syncStoresFromWarehouses(
+      organizationId,
+      this.requestOf(request, requestId),
+    );
+  }
+
   // ---------- 员工 ----------
 
   @Get("organizations/:organizationId/employees")

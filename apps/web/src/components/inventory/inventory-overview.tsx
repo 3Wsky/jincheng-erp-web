@@ -7,36 +7,12 @@ import {
   type WarehouseOverviewItem,
   type WarehouseSerialItem,
 } from "@jincheng/contracts";
-import * as echarts from "echarts/core";
-import { TreemapChart, type TreemapSeriesOption } from "echarts/charts";
-import {
-  TitleComponent,
-  TooltipComponent,
-  type TooltipComponentOption,
-} from "echarts/components";
-import { CanvasRenderer } from "echarts/renderers";
-import type { ComposeOption } from "echarts/core";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-
-echarts.use([TreemapChart, TitleComponent, TooltipComponent, CanvasRenderer]);
-
-type EChartsOption = ComposeOption<
-  TreemapSeriesOption | TooltipComponentOption
->;
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 /** 公司类仓库类型(总仓/门店/售后/异常) */
 const COMPANY_TYPES = ["COMPANY", "STORE", "AFTER_SALES", "ABNORMAL"];
 
-/** 个人分销仓超过该数量时,只展示 Top N,其余聚合为"其他 X 个" */
-const PERSONAL_VISIBLE = 12;
-
-/** 公司仓蓝色系(低 → 高,基于项目主色 #3157d5 的低饱和蓝) */
+/** 公司仓蓝色系(低 → 高,基于项目主色的低饱和蓝) */
 const COMPANY_COLOR_SCALE = [
   "#EFF6FF",
   "#DBEAFE",
@@ -53,38 +29,49 @@ const PERSONAL_COLOR_SCALE = [
   "#34D399",
 ];
 
-interface TreemapDatum {
+interface WarehouseCard {
   id: string;
   name: string;
   value: number;
   type: "company" | "personal";
-  color?: string;
-  raw?: WarehouseOverviewItem;
+  color: string;
+  /** 占格 span 组合(8 列网格),面积近似正比于库存量 */
+  spanClass: string;
+  /** 字号档位(随块面积放大) */
+  fontTier: 1 | 2 | 3 | 4 | 5;
+  raw: WarehouseOverviewItem;
+}
+
+/** 最大块允许占的格子数(8列×2行);同时决定 1 格代表的库存单位 */
+const MAX_CELLS = 16;
+
+/**
+ * 按库存量分配格子数(2026-08-12 验收口径:面积能看出 A 是 B 的几倍,
+ * 且块形状保持方正、不出现扁长横条):
+ * 1 格 = 分区最大库存 / 16,每仓格子数 = round(库存 / 单位),最小 1 格保底;
+ * 格子数吸附到方正组合(1×1/2×1/2×2/3×2/3×3/4×3/4×4),最长形状 2:1。
+ * 例:总库 1921 台 → 4×4 大方块,502 台的店 → 2×2(面积约 1/4),94 台 → 1×1。
+ */
+function allocateCells(
+  value: number,
+  max: number,
+): Pick<WarehouseCard, "spanClass" | "fontTier"> {
+  const unit = Math.max(1, max / MAX_CELLS);
+  const cells = Math.max(1, Math.round(value / unit));
+  if (cells >= 14) return { spanClass: "s4x4", fontTier: 5 };
+  if (cells >= 11) return { spanClass: "s4x3", fontTier: 5 };
+  if (cells >= 8) return { spanClass: "s3x3", fontTier: 4 };
+  if (cells >= 6) return { spanClass: "s3x2", fontTier: 4 };
+  if (cells >= 4) return { spanClass: "s2x2", fontTier: 3 };
+  if (cells >= 2) return { spanClass: "s2x1", fontTier: 2 };
+  return { spanClass: "s1x1", fontTier: 1 };
 }
 
 function isCompany(type: string): boolean {
   return COMPANY_TYPES.includes(type);
 }
 
-/** 归一化:后端字段 → Treemap 数据。缺字段不伪造。 */
-function normalizeWarehouseData(
-  overview: InventoryOverview,
-): TreemapDatum[] {
-  return overview.warehouses
-    .map((item) => ({
-      id: item.id,
-      name: item.name,
-      value: item.serialCount,
-      type: (isCompany(item.type) ? "company" : "personal") as
-        | "company"
-        | "personal",
-      raw: item,
-    }))
-    .filter((item) => item.value > 0)
-    .sort((a, b) => b.value - a.value);
-}
-
-/** 颜色:按 value / 分类最大值 分档,平滑不跳跃 */
+/** 颜色:按 value / 分类最大值 分档,保留库存量级感 */
 function getWarehouseColor(
   type: "company" | "personal",
   value: number,
@@ -121,209 +108,26 @@ const emptyOverview: InventoryOverview = {
 };
 
 /* ============================================================
- * 单个分区 Treemap(公司 / 个人 各一个实例,独立管理生命周期)
+ * 仓库网格分区:等尺寸卡片,所有仓库完整可读
+ * (2026-08-12 验收反馈:原 Treemap 按面积等比缩放,小仓库缩成
+ *  看不清的碎块;改为网格卡片,颜色深浅保留量级感)
  * ============================================================ */
-function TreemapSection({
+function WarehouseGridSection({
   title,
   count,
+  total,
   items,
   onSelect,
   hidden,
 }: {
   title: string;
   count: number;
-  items: TreemapDatum[];
+  total: number;
+  items: WarehouseCard[];
   onSelect: (item: WarehouseOverviewItem) => void;
   hidden: boolean;
 }) {
-  const chartRef = useRef<HTMLDivElement | null>(null);
-  const chartInstance = useRef<echarts.ECharts | null>(null);
   const type = title === "个人分销仓" ? "personal" : "company";
-
-  useEffect(() => {
-    const el = chartRef.current;
-    if (!el) return;
-    // 刷新时 React 会重建容器 DOM,旧实例仍挂在旧节点上:
-    // 检测到不一致必须先 dispose 再重新 init,否则图表画在已脱离页面的 DOM 上 → 空白
-    if (chartInstance.current && chartInstance.current.getDom() !== el) {
-      chartInstance.current.dispose();
-      chartInstance.current = null;
-    }
-    if (!chartInstance.current) {
-      chartInstance.current = echarts.init(el);
-    }
-    const chart = chartInstance.current;
-
-    // 无匹配数据:显示空态提示,不销毁实例(避免 DOM 移除冲突)
-    if (items.length === 0) {
-      chart.setOption(
-        {
-          title: {
-            text: "暂无匹配仓库",
-            subtext: "试试调整搜索关键词",
-            left: "center",
-            top: "middle",
-            textStyle: { color: "#6f7b8f", fontSize: 15, fontWeight: 500 },
-            subtextStyle: { color: "#98a2b3", fontSize: 12 },
-          },
-          series: [],
-        },
-        true,
-      );
-      return undefined;
-    }
-
-    const sectionTotal = items.reduce((sum, item) => sum + item.value, 0);
-    const option: EChartsOption = {
-      animationDurationUpdate: 300,
-      tooltip: {
-        trigger: "item",
-        backgroundColor: "#FFFFFF",
-        borderColor: "#EAECF0",
-        borderWidth: 1,
-        padding: 14,
-        confine: true,
-        textStyle: { color: "#344054", fontSize: 12 },
-        extraCssText:
-          "border-radius:10px;box-shadow:0 8px 24px rgba(16,24,40,.10);",
-        formatter: (params: unknown) => {
-          const data = (params as { data?: Partial<TreemapDatum> }).data ?? {};
-          const name = data.name ?? "-";
-          const value = Number(data.value ?? 0);
-          const typeText = data.type === "personal" ? "个人分销仓" : "公司门店仓";
-          const percent =
-            sectionTotal > 0 ? ((value / sectionTotal) * 100).toFixed(1) : "0.0";
-          const rows: string[] = [
-            `<div style="font-size:14px;font-weight:600;color:#101828;margin-bottom:12px;">${name}</div>`,
-            `<div style="display:flex;justify-content:space-between;gap:24px;margin-bottom:6px;"><span style="color:#667085">库存数量</span><b style="color:#101828">${formatCount(value)} 台</b></div>`,
-            `<div style="display:flex;justify-content:space-between;gap:24px;margin-bottom:6px;"><span style="color:#667085">库存占比</span><span>${percent}%</span></div>`,
-            `<div style="display:flex;justify-content:space-between;gap:24px;"><span style="color:#667085">仓库类型</span><span>${typeText}</span></div>`,
-          ];
-          if (data.raw?.ownerEmployeeName) {
-            rows.push(
-              `<div style="display:flex;justify-content:space-between;gap:24px;margin-top:6px;padding-top:6px;border-top:1px solid #EAECF0;"><span style="color:#667085">负责人</span><span>${data.raw.ownerEmployeeName}</span></div>`,
-            );
-          }
-          return `<div style="min-width:180px;">${rows.join("")}</div>`;
-        },
-      },
-      series: [
-        {
-          type: "treemap",
-          roam: false,
-          nodeClick: false,
-          breadcrumb: { show: false },
-          squareRatio: 1.2,
-          sort: "desc",
-          leafDepth: 1,
-          visibleMin: 0,
-          itemStyle: {
-            borderColor: "#FFFFFF",
-            borderWidth: 3,
-            gapWidth: 3,
-            borderRadius: 6,
-          },
-          emphasis: {
-            focus: "self",
-            itemStyle: { shadowBlur: 12, shadowColor: "rgba(16,24,40,.12)" },
-          },
-          label: {
-            show: true,
-            color: "#101828",
-            padding: 10,
-            overflow: "truncate",
-            formatter: (params: unknown) => {
-              const data = (params as { data?: Partial<TreemapDatum> }).data ??
-                {};
-              const value = Number(data.value ?? 0);
-              const name = data.name ?? "";
-              if (value >= 300) {
-                return `{name|${name}}\n\n{big|${formatCount(value)}} {unit|台}`;
-              }
-              if (value >= 100) {
-                return `{name|${name}}\n{value|${formatCount(value)} 台}`;
-              }
-              if (value >= 30) {
-                return `{small|${name}}\n{smallValue|${value}}`;
-              }
-              return "";
-            },
-            rich: {
-              name: {
-                fontSize: 13,
-                fontWeight: 500,
-                color: "#344054",
-                lineHeight: 18,
-              },
-              big: {
-                fontSize: 24,
-                fontWeight: 700,
-                color: "#101828",
-                lineHeight: 30,
-              },
-              unit: { fontSize: 12, color: "#667085" },
-              value: {
-                fontSize: 17,
-                fontWeight: 600,
-                color: "#101828",
-                lineHeight: 24,
-              },
-              small: { fontSize: 11, color: "#344054" },
-              smallValue: {
-                fontSize: 13,
-                fontWeight: 600,
-                color: "#101828",
-              },
-            },
-          },
-          data: items.map((item) => ({
-            id: item.id,
-            name: item.name,
-            value: item.value,
-            type: item.type,
-            raw: item.raw,
-            itemStyle: {
-              color: item.color,
-              borderColor: "#FFFFFF",
-              borderWidth: 3,
-              borderRadius: 6,
-            },
-            label: {
-              show: item.value >= 30,
-              fontSize: item.value >= 300 ? 24 : item.value >= 100 ? 17 : 13,
-            },
-          })),
-        },
-      ],
-    };
-    chart.setOption(option, true);
-
-    // 点击仓库 → 打开详情抽屉
-    const onClick = (params: unknown) => {
-      const data = (params as { data?: { raw?: WarehouseOverviewItem } })
-        .data;
-      if (data?.raw) onSelect(data.raw);
-    };
-    chart.off("click", onClick);
-    chart.on("click", onClick);
-
-    // 容器尺寸变化时自适应
-    const onResize = () => chartInstance.current?.resize();
-    window.addEventListener("resize", onResize);
-    return () => {
-      window.removeEventListener("resize", onResize);
-      chart.off("click", onClick);
-    };
-  }, [items, onSelect]);
-
-  /** 卸载时释放图表实例,避免内存泄漏 */
-  useEffect(() => {
-    return () => {
-      chartInstance.current?.dispose();
-      chartInstance.current = null;
-    };
-  }, []);
-
   return (
     <section
       className={`treemap-section ${type}`}
@@ -333,10 +137,39 @@ function TreemapSection({
         <span className="treemap-section-title">
           <i className={`legend-dot ${type}`} />
           {title}
+          <em className="treemap-section-sub">{items.length} 个仓库</em>
         </span>
         <span className="treemap-section-count">{formatCount(count)} 台</span>
       </div>
-      <div className="inventory-treemap" ref={chartRef} />
+      {items.length === 0 ? (
+        <p className="wh-grid-empty">暂无匹配仓库，试试调整搜索关键词。</p>
+      ) : (
+        <div className="wh-grid">
+          {items.map((item) => (
+            <button
+              className={`wh-card ${item.spanClass} f${item.fontTier}`}
+              key={item.id}
+              style={{ backgroundColor: item.color }}
+              type="button"
+              onClick={() => onSelect(item.raw)}
+            >
+              <span className="wh-card-name">{item.name}</span>
+              <b>
+                {formatCount(item.value)}
+                <em>台</em>
+              </b>
+              {item.fontTier >= 2 ? (
+                <small>
+                  {formatPercent(item.value, total)}
+                  {item.raw.ownerEmployeeName
+                    ? ` · ${item.raw.ownerEmployeeName}`
+                    : ""}
+                </small>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -387,73 +220,51 @@ export function InventoryOverview() {
     return () => window.clearTimeout(timeoutId);
   }, [load]);
 
-  /** 数据适配:分类筛选 + 仓库搜索 → 公司/个人两组独立数据 */
+  /** 数据适配:分类筛选 + 仓库搜索 → 公司/个人两组卡片(全部展示,不聚合) */
   const sections = useMemo(() => {
-    const all = normalizeWarehouseData(overview);
     const keyword = search.trim().toLowerCase();
-    const matched = all.filter(
-      (item) =>
-        keyword === "" || item.name.toLowerCase().includes(keyword),
-    );
+    const matched = overview.warehouses
+      .filter((item) => item.serialCount > 0)
+      .filter(
+        (item) => keyword === "" || item.name.toLowerCase().includes(keyword),
+      );
 
-    // 公司区:全部展示(26 个左右,直接 treemap)
-    const companyItems = matched
-      .filter((item) => item.type === "company")
-      .map((item) => item);
-    const companyMax = Math.max(
-      ...companyItems.map((item) => item.value),
-      0,
-    );
-    const companyFinal = companyItems.map((item) => ({
-      ...item,
-      color: getWarehouseColor("company", item.value, companyMax),
-    }));
+    const build = (type: "company" | "personal"): WarehouseCard[] => {
+      const list = matched.filter((item) =>
+        type === "company" ? isCompany(item.type) : !isCompany(item.type),
+      );
+      const max = Math.max(...list.map((item) => item.serialCount), 0);
+      return list
+        .sort((a, b) => b.serialCount - a.serialCount)
+        .map((item) => ({
+          id: item.id,
+          name: item.name,
+          value: item.serialCount,
+          type,
+          color: getWarehouseColor(type, item.serialCount, max),
+          ...allocateCells(item.serialCount, max),
+          raw: item,
+        }));
+    };
 
-    // 个人区:超过 Top N 时合并为"其他 X 个"
-    const personalItems = matched.filter((item) => item.type === "personal");
-    const personalMax = Math.max(
-      ...personalItems.map((item) => item.value),
-      0,
-    );
-    let personalFinal: TreemapDatum[];
-    if (personalItems.length > PERSONAL_VISIBLE) {
-      const head = personalItems.slice(0, PERSONAL_VISIBLE);
-      const others = personalItems.slice(PERSONAL_VISIBLE);
-      const othersCount = others.reduce((sum, item) => sum + item.value, 0);
-      personalFinal = [
-        ...head,
-        {
-          id: "__personal_others__",
-          name: `其他 ${others.length} 个`,
-          value: othersCount,
-          type: "personal",
-          raw: undefined,
-        },
-      ];
-    } else {
-      personalFinal = personalItems;
-    }
-    personalFinal = personalFinal.map((item) => ({
-      ...item,
-      color: getWarehouseColor("personal", item.value, personalMax),
-    }));
-
-    const companyCount = companyItems.reduce((sum, item) => sum + item.value, 0);
-    const personalCount = personalItems.reduce((sum, item) => sum + item.value, 0);
-
-    return { company: companyFinal, personal: personalFinal, companyCount, personalCount };
+    const company = build("company");
+    const personal = build("personal");
+    return {
+      company,
+      personal,
+      companyCount: company.reduce((sum, item) => sum + item.value, 0),
+      personalCount: personal.reduce((sum, item) => sum + item.value, 0),
+    };
   }, [overview, search]);
 
   const stats = useMemo(() => {
-    const total = overview.totalSerials;
-    const company = overview.companySerials;
-    const personal = overview.personalSerials;
     return {
-      total,
-      company,
-      personal,
-      warehouseCount: overview.warehouses.filter((w) => w.serialCount > 0)
-        .length,
+      total: overview.totalSerials,
+      company: overview.companySerials,
+      personal: overview.personalSerials,
+      warehouseCount: overview.warehouses.filter(
+        (warehouse) => warehouse.serialCount > 0,
+      ).length,
     };
   }, [overview]);
 
@@ -489,8 +300,6 @@ export function InventoryOverview() {
   }, []);
 
   // ---- 加载 / 错误 / 空态 ----
-  // 首次加载(尚无数据)才显示整页 Skeleton;
-  // 刷新/重新加载时保留已渲染内容,避免图表实例被卸载重建导致闪烁或空白
   if (loading && overview.warehouses.length === 0) {
     return <div className="inventory-loading">正在加载仓库总览…</div>;
   }
@@ -512,8 +321,6 @@ export function InventoryOverview() {
       </div>
     );
   }
-
-  const isAggregate = selected?.id === "__personal_others__";
 
   return (
     <div className="inventory-overview">
@@ -555,7 +362,9 @@ export function InventoryOverview() {
           <div>
             <p className="eyebrow">库存分布</p>
             <h2>仓库库存</h2>
-            <p>上方为公司门店仓库，下方为个人分销仓库；板块面积与台数成正比</p>
+            <p>
+              每个仓库一张卡片，按库存台数排序；颜色越深库存越多，点击卡片查看序列号明细。
+            </p>
           </div>
           <div className="inventory-card-actions">
             {lastUpdated ? (
@@ -612,18 +421,20 @@ export function InventoryOverview() {
           </div>
         </div>
 
-        {/* 上下分区:公司在上、个人在下;筛选用 CSS 隐藏而非卸载,避免图表 DOM 重建 */}
+        {/* 上下分区:公司在上、个人在下;筛选用 CSS 隐藏而非卸载 */}
         <div className="inventory-treemap-sections">
-          <TreemapSection
+          <WarehouseGridSection
             title="公司门店仓"
             count={sections.companyCount}
+            total={sections.companyCount}
             items={sections.company}
             onSelect={openWarehouse}
             hidden={filter === "personal"}
           />
-          <TreemapSection
+          <WarehouseGridSection
             title="个人分销仓"
             count={sections.personalCount}
+            total={sections.personalCount}
             items={sections.personal}
             onSelect={openWarehouse}
             hidden={filter === "company"}
@@ -631,7 +442,7 @@ export function InventoryOverview() {
         </div>
       </section>
 
-      {/* 仓库详情抽屉:点击 Treemap 打开 */}
+      {/* 仓库详情抽屉:点击卡片打开 */}
       {selected ? (
         <div className="drawer-overlay" onClick={() => setSelected(null)} role="presentation">
           <aside
@@ -641,12 +452,10 @@ export function InventoryOverview() {
           >
             <header className="drawer-head">
               <div>
-                <h2>{isAggregate ? "其他个人分销仓库" : selected.name}</h2>
+                <h2>{selected.name}</h2>
                 <small>
-                  {isAggregate
-                    ? "个人分销仓"
-                    : typeLabel(isCompany(selected.type) ? "company" : "personal")}
-                  {!isAggregate && selected.storeName ? ` · ${selected.storeName}` : ""}
+                  {typeLabel(isCompany(selected.type) ? "company" : "personal")}
+                  {selected.storeName ? ` · ${selected.storeName}` : ""}
                 </small>
               </div>
               <button
@@ -659,82 +468,76 @@ export function InventoryOverview() {
               </button>
             </header>
 
-            {!isAggregate ? (
-              <>
-                <div className="drawer-stats">
-                  <div>
-                    <span>库存总数</span>
-                    <strong>{formatCount(selected.serialCount)} 台</strong>
-                  </div>
-                  {selected.ownerEmployeeName ? (
-                    <div>
-                      <span>负责人</span>
-                      <strong>{selected.ownerEmployeeName}</strong>
-                    </div>
-                  ) : null}
+            <div className="drawer-stats">
+              <div>
+                <span>库存总数</span>
+                <strong>{formatCount(selected.serialCount)} 台</strong>
+              </div>
+              {selected.ownerEmployeeName ? (
+                <div>
+                  <span>负责人</span>
+                  <strong>{selected.ownerEmployeeName}</strong>
                 </div>
+              ) : null}
+            </div>
 
-                <div className="drawer-section">
-                  <h3>库存商品（最近入库 {serials.length > 0 ? Math.min(serialsTotal, serials.length) : 0} 台示例）</h3>
-                </div>
+            <div className="drawer-section">
+              <h3>库存商品（最近入库 {serials.length > 0 ? Math.min(serialsTotal, serials.length) : 0} 台示例）</h3>
+            </div>
 
-                <div className="drawer-serial-search">
-                  <input
-                    placeholder="搜索 SKU、IMEI、SN"
-                    value={serialsSearch}
-                    onChange={(event) => setSerialsSearch(event.target.value)}
-                  />
-                </div>
+            <div className="drawer-serial-search">
+              <input
+                placeholder="搜索 SKU、IMEI、SN"
+                value={serialsSearch}
+                onChange={(event) => setSerialsSearch(event.target.value)}
+              />
+            </div>
 
-                {serialsLoading ? (
-                  <p className="drawer-empty">正在加载序列号…</p>
-                ) : serialsError ? (
-                  <p className="drawer-empty error">{serialsError}</p>
-                ) : serials.length === 0 ? (
-                  <p className="drawer-empty">该仓库暂无序列号记录</p>
-                ) : (
-                  <div className="drawer-table-wrap">
-                    <table className="drawer-table">
-                      <thead>
-                        <tr>
-                          <th>IMEI</th>
-                          <th>商品</th>
-                          <th>状态</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {serials
-                          .filter((serial) =>
-                            serialsSearch.trim() === ""
-                              ? true
-                              : serial.imeiPrimary
-                                  .toLowerCase()
-                                  .includes(serialsSearch.trim().toLowerCase()) ||
-                                serial.skuName
-                                  .toLowerCase()
-                                  .includes(serialsSearch.trim().toLowerCase()),
-                          )
-                          .slice(0, 30)
-                          .map((serial) => (
-                            <tr key={serial.id}>
-                              <td className="mono">{serial.imeiPrimary}</td>
-                              <td>
-                                {[serial.productBrand, serial.productModel, serial.skuName]
-                                  .filter(Boolean)
-                                  .join(" ")}
-                              </td>
-                              <td>
-                                <span className="drawer-status">{serial.status}</span>
-                              </td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </>
+            {serialsLoading ? (
+              <p className="drawer-empty">正在加载序列号…</p>
+            ) : serialsError ? (
+              <p className="drawer-empty error">{serialsError}</p>
+            ) : serials.length === 0 ? (
+              <p className="drawer-empty">该仓库暂无序列号记录</p>
             ) : (
-              <p className="drawer-empty">点击具体个人仓库可查看序列号明细。</p>
+              <div className="drawer-table-wrap">
+                <table className="drawer-table">
+                  <thead>
+                    <tr>
+                      <th>IMEI</th>
+                      <th>商品</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {serials
+                      .filter((serial) =>
+                        serialsSearch.trim() === ""
+                          ? true
+                          : serial.imeiPrimary
+                              .toLowerCase()
+                              .includes(serialsSearch.trim().toLowerCase()) ||
+                            serial.skuName
+                              .toLowerCase()
+                              .includes(serialsSearch.trim().toLowerCase()),
+                      )
+                      .slice(0, 30)
+                      .map((serial) => (
+                        <tr key={serial.id}>
+                          <td className="mono">{serial.imeiPrimary}</td>
+                          <td>
+                            {[serial.productBrand, serial.productModel, serial.skuName]
+                              .filter(Boolean)
+                              .join(" ")}
+                          </td>
+                          <td>
+                            <span className="drawer-status">{serial.status}</span>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </aside>
         </div>

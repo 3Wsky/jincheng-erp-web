@@ -68,14 +68,18 @@ async function proxy(
     }
   }
 
+  // 生产环境（HTTPS）必须带 Secure，防止令牌经明文传输
+  const secureFlag = process.env.NODE_ENV === "production" ? "; Secure" : "";
   const setCookie: string[] = [];
   if (isLogin && response.ok && loginPayload?.accessToken) {
     setCookie.push(
-      `${TOKEN_COOKIE}=${loginPayload.accessToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${TOKEN_MAX_AGE}`,
+      `${TOKEN_COOKIE}=${loginPayload.accessToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${TOKEN_MAX_AGE}${secureFlag}`,
     );
   }
   if (isLogout) {
-    setCookie.push(`${TOKEN_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+    setCookie.push(
+      `${TOKEN_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureFlag}`,
+    );
   }
 
   const passthrough = new Response(bodyBuffer ?? response.body, {

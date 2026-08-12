@@ -160,6 +160,96 @@ export class OrganizationService {
     return this.database.client.store.findUniqueOrThrow({ where: { id } });
   }
 
+  /**
+   * 从门店类仓库同步门店主数据（幂等可重跑）：
+   * - 只处理 type=STORE 的仓库；总仓/售后/异常不是门店，个人仓归属员工，均跳过；
+   * - 仓库已关联门店的跳过；同编码门店已存在则只补关联，不重复创建；
+   * - 汇总结果写入一条审计日志（含操作人与新建清单）。
+   */
+  async syncStoresFromWarehouses(
+    organizationId: string,
+    request: AuthenticatedRequest,
+  ) {
+    const organization = await this.database.client.organization.findUnique({
+      where: { id: organizationId },
+      select: { id: true },
+    });
+    if (!organization) throw new NotFoundException("组织不存在");
+
+    const warehouses = await this.database.client.warehouse.findMany({
+      where: { type: "STORE" },
+      orderBy: { name: "asc" },
+      select: { id: true, code: true, name: true, storeId: true },
+    });
+
+    let storesCreated = 0;
+    let warehousesLinked = 0;
+    let alreadyLinked = 0;
+    const createdNames: string[] = [];
+
+    await this.database.client.$transaction(
+      async (tx) => {
+        for (const warehouse of warehouses) {
+          if (warehouse.storeId) {
+            alreadyLinked += 1;
+            continue;
+          }
+          let store = await tx.store.findUnique({
+            where: {
+              organizationId_code: {
+                organizationId,
+                code: warehouse.code,
+              },
+            },
+            select: { id: true },
+          });
+          if (!store) {
+            store = await tx.store.create({
+              data: {
+                id: randomUUID(),
+                organizationId,
+                code: warehouse.code,
+                name: warehouse.name,
+              },
+              select: { id: true },
+            });
+            storesCreated += 1;
+            createdNames.push(warehouse.name);
+          }
+          await tx.warehouse.update({
+            where: { id: warehouse.id },
+            data: { storeId: store.id },
+          });
+          warehousesLinked += 1;
+        }
+        await tx.auditLog.create({
+          data: {
+            actorUserId: request.user.userId,
+            action: "store.sync_from_warehouses",
+            resource: "store",
+            resourceId: organizationId,
+            requestId: request.requestId,
+            afterData: {
+              storeWarehouses: warehouses.length,
+              storesCreated,
+              warehousesLinked,
+              alreadyLinked,
+              createdNames,
+            },
+          },
+        });
+      },
+      { timeout: 30_000 },
+    );
+
+    return {
+      storeWarehouses: warehouses.length,
+      storesCreated,
+      warehousesLinked,
+      alreadyLinked,
+    };
+  }
+
   // ---------- 员工 ----------
 
   async listEmployees(organizationId: string, query: ListEmployeesQueryDto) {

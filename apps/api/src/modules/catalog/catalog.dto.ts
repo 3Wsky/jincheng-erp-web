@@ -6,6 +6,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsNumberString,
   IsOptional,
   IsString,
   IsUUID,
@@ -80,6 +81,12 @@ export class CreateCatalogSkuDto {
   @IsString()
   @MaxLength(100)
   capacity?: string;
+
+  /** 零售指导价(元,字符串形式的十进制数);不传或 null = 未定价 */
+  @IsOptional()
+  @IsNumberString()
+  @MaxLength(20)
+  retailPrice?: string;
 
   @IsOptional()
   @IsBoolean()
@@ -174,6 +181,12 @@ export class UpdateCatalogSkuDto {
   @IsString()
   @MaxLength(100)
   capacity?: string;
+
+  /** 零售指导价(元);传 null 清除定价 */
+  @IsOptional()
+  @IsNumberString()
+  @MaxLength(20)
+  retailPrice?: string | null;
 
   @IsOptional()
   @IsBoolean()

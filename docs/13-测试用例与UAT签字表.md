@@ -24,8 +24,23 @@
 | TC-AUTH-002 | 销售修改 URL 查询其他门店                    | 403 或按权限不可见                                   | AC-F-002               |
 | TC-INV-001  | 同一 IMEI 并发销售两次                       | 仅一笔成功                                           | AC-F-005、012          |
 | TC-INV-002  | SKU 余额重算                                 | 与有效流水差异为 0                                   | AC-F-006               |
+| TC-INV-003  | `/search` 按 IMEI 片段/SKU 编码/条码/品牌型号分别查货 | 均能命中同一台设备；结果含位置、状态、责任人；点击展示期初至今流转时间线 | AC-F-004~005           |
+| TC-INV-004  | 全局查货搜索条件构建（单元测试 inventory.service.spec） | 一个关键字覆盖 IMEI 主/副、SN、SKU 编码/名称、单/多条码、品牌、型号九个维度，大小写不敏感 | AC-F-004               |
+| TC-INV-005  | 未登录或缺少 inventory:read 访问库存接口（单元测试 inventory.controller.spec） | 总览/查货/聚合视图/单机档案/仓库明细均要求登录 + inventory:read | AC-F-002、权限与安全验收 |
+| TC-INV-006  | 连写关键词与聚合视图（2026-08-12 验收实测） | 搜 mate80promax/mate80/MATE80PRO 均命中带空格商品名；聚合视图按商品显示各仓库可售数，点击卡片下钻该 SKU 逐台明细 | AC-F-004               |
+| TC-INV-008  | 商品属性解析与分类筛选（单元测试 inventory.service.spec + 实测） | 手机=容量对+颜色、电脑=CPU+容量、手表=表盘 mm、显示器=屏寸、耳机仅颜色；聚合视图规格/颜色筛选桶计数正确（mate80:16+512×13；matebook:i5 16+512×10；watch:46mm×7） | AC-F-004               |
+| TC-INV-009  | 连写型号词边界（单元测试 + 2026-08-12 验收实测） | 搜 mate80pro 只命中 Mate 80 Pro（不含 Pro Max）；mate80promax 只命中 Pro Max；mate80 只命中标准版；Pro+ 需输入 pro+ 才命中 | AC-F-004               |
 | TC-TRF-001  | 调拨部分收货并少一台                         | 在途、目标库存和差异正确                             | AC-F-008~009           |
+| TC-TRF-002  | 调拨主单聚合判定（单元测试 transfer.service.spec） | 部分接收→PARTIALLY_RECEIVED；全收→RECEIVED；在途清零且有差异→EXCEPTION | AC-F-008~009           |
+| TC-TRF-003  | 调拨接口鉴权与非法转换（单元测试 transfer.controller.spec + 实测） | 读需 transfer:read、命令需 transfer:write；跳步操作返回 422；并发重复命令仅一次成功（409） | AC-F-002、008          |
+| TC-TRF-004  | 完整握手流程（2026-08-12 实测通过）          | 建单→提交→审批→锁库→发出→部分接收→补收→完成八步状态正确；序列号锁定/在途/落位调入仓；TRANSFER_OUT/IN 流水一机各一条 | AC-F-008~009           |
 | TC-PUR-001  | 采购10、付款10、收货8                        | 显示未到2及对应金额                                  | AC-F-010~011           |
+| TC-PUR-002  | 采购聚合纯函数（单元测试 procurement.service.spec） | 付款三态边界（0/部分/刚好/超过）；收货聚合（未收/部分/全收/空明细）；PUR/RCP 单号格式 | AC-F-010~011           |
+| TC-PUR-003  | 采购接口鉴权装配（单元测试 procurement.controller.spec） | 类级 JwtAuthGuard；读需 procurement:read、命令需 procurement:write | AC-F-002、010          |
+| TC-PUR-004  | 采购端到端闭环（2026-08-12 实测通过）        | 建供应商→建单→提交→审批→部分付款→补齐付款→扫码收货生成序列号（PURCHASE_RECEIPT 流水一机一条，全局查货可查）→完成；重复审批 422 | AC-F-010~011           |
+| TC-STK-002  | 盘点差异判定（单元测试 stocktake.service.spec） | 账实一致无差异；漏扫→盘亏 MISSING；系统外设备→盘盈 UNEXPECTED；账面在他仓→串仓 UNEXPECTED（note 标实际位置）；混合场景正确 | AC-F-006~007           |
+| TC-STK-003  | 盘点接口鉴权装配（单元测试 stocktake.controller.spec） | 读需 inventory:read、命令需 inventory:write，全部接口要求登录 | AC-F-002、权限与安全验收 |
+| TC-STK-004  | 盘库封存与差异过账（2026-08-12 实测通过）    | 开盘后该仓建调拨单被拒 422（封存提示含盘点单号）；扫 2 台留 1 台 + 1 个系统外 IMEI→差异 1 盘亏 + 1 盘盈；审批过账后盘亏设备转 ABNORMAL 且时间线含 STOCK_LOSS[STOCKTAKE] 流水；过账解封后建调拨单成功 | AC-F-006~007、008      |
 | TC-SAL-001  | 同幂等键重复确认销售10次                     | 只扣一次库存和收款                                   | AC-F-012               |
 | TC-RET-001  | 原单退货并退款                               | 库存、资金、业绩均冲回                               | AC-F-013~014           |
 | TC-TASK-001 | 处理调拨待办                                 | 真实推进调拨状态                                     | AC-F-017               |
@@ -36,6 +51,10 @@
 | TC-CAT-003  | 仓库映射、成本和收货时间未确认时应用货品批次 | 只建立待归类商品/SKU，不生成库存余额、单机档案或流水 | AC-F-003、AC-F-006     |
 | TC-CAT-004  | 商品/SKU/条码重复创建                        | 返回冲突，不产生部分写入；审计与业务写入同事务       | AC-F-003               |
 | TC-CAT-005  | 生产环境未配置或使用错误货品写入密钥         | 写接口关闭或返回未授权                               | 权限与安全验收         |
+| TC-CAT-006  | 未登录或缺少 catalog:read/write 访问货品接口 | 读写均返回 401/403；写入审计含操作人（单测 catalog.controller.spec） | AC-F-002、权限与安全验收 |
+| TC-ORG-001  | 在 `/admin/organization` 建组织/门店/员工并开通账号 | 全链路成功；新账号可登录；每步审计含操作人与 request_id | AC-F-001~002           |
+| TC-ORG-002  | 冻结账号后用原会话与新登录分别访问           | 原会话立即失效、新登录被拒；解冻后恢复               | AC-F-001               |
+| TC-ORG-003  | 重复执行“从公司仓库生成门店”                 | 首次按 STORE 类仓库建店并回链；重跑不重复建店；个人/总仓/售后不参与 | AC-F-001、数据一致性 5 |
 
 ## 4. 用例记录模板
 

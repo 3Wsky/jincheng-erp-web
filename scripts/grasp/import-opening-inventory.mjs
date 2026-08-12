@@ -16,9 +16,12 @@ import { randomUUID } from "node:crypto";
 const require = createRequire(import.meta.url);
 const { createPrismaClient } = require("../../packages/database/dist/index.js");
 
-const connectionString =
-  process.env.DATABASE_URL ??
-  "postgresql://jcerp2026:MaxptyF2W7XD4aJ6@47.109.193.103:5432/jcerp2026";
+// 安全要求：连接串只从环境变量读取，禁止把数据库密码写进代码仓库
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  console.error("[import] 缺少 DATABASE_URL 环境变量（可在根目录 .env 配置后用 dotenv 方式注入）");
+  process.exit(1);
+}
 
 const jsonPath = process.argv[2];
 if (!jsonPath) {

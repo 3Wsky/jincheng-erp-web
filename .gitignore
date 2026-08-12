@@ -19,3 +19,10 @@ packages/database/prisma/migrations/*_draft/
 .tmp-chrome-profile*/
 scripts/grasp/*.json
 scripts/grasp/*.png
+
+# 进度体检报告(每次运行生成)
+progress-report.html
+progress-report.json
+
+# IDE 本地配置(含本机路径,不入库)
+.cursor/

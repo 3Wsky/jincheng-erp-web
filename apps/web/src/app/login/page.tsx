@@ -35,7 +35,10 @@ function LoginForm() {
         return;
       }
       const next = searchParams.get("next");
-      router.push(next && next.startsWith("/") ? next : "/");
+      // 只允许站内路径，拒绝 //host 形式的协议相对地址（开放重定向防护）
+      const safeNext =
+        next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+      router.push(safeNext);
       router.refresh();
     } catch {
       setError("无法连接登录服务，请确认后端已启动");

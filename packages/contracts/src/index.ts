@@ -374,8 +374,507 @@ export const WarehouseSerialListSchema = z.object({
   totalPages: z.number().int().nonnegative(),
 });
 
+// ---- 全局查货(AC-F-004)与单机档案(AC-F-005) ----
+
+export const SerialStatusSchema = z.enum([
+  "NORMAL",
+  "LOCKED",
+  "IN_TRANSIT",
+  "PENDING_CONFIRM",
+  "PERSONAL",
+  "SOLD",
+  "AFTER_SALES",
+  "ABNORMAL",
+]);
+
+export const SerialSearchItemSchema = z.object({
+  id: z.uuid(),
+  imeiPrimary: z.string(),
+  imeiSecondary: z.string().nullable(),
+  serialNumber: z.string().nullable(),
+  status: SerialStatusSchema,
+  skuCode: z.string(),
+  skuName: z.string(),
+  productBrand: z.string().nullable(),
+  productModel: z.string().nullable(),
+  retailPrice: z.string().nullable(),
+  warehouseId: z.uuid(),
+  warehouseName: z.string(),
+  warehouseType: WarehouseTypeSchema,
+  storeName: z.string().nullable(),
+  responsibleEmployeeName: z.string().nullable(),
+  receivedAt: z.iso.datetime(),
+  unitCost: z.string(),
+});
+
+export const SerialSearchResultSchema = z.object({
+  items: z.array(SerialSearchItemSchema),
+  byStatus: z.array(
+    z.object({
+      status: SerialStatusSchema,
+      count: z.number().int().nonnegative(),
+    }),
+  ),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+});
+
+/** 查货聚合视图:按商品汇总各仓库可售/占用/其他数量(找货第一步) */
+export const SearchSummaryWarehouseSchema = z.object({
+  warehouseId: z.uuid(),
+  warehouseName: z.string(),
+  warehouseType: WarehouseTypeSchema,
+  storeName: z.string().nullable(),
+  available: z.number().int().nonnegative(),
+  pending: z.number().int().nonnegative(),
+  other: z.number().int().nonnegative(),
+});
+
+export const SearchSummarySkuGroupSchema = z.object({
+  skuId: z.uuid(),
+  skuCode: z.string(),
+  skuName: z.string(),
+  /** primary=真机/主商品(视觉焦点);accessory=配件;demo=演示机(往下排) */
+  kind: z.enum(["primary", "accessory", "demo"]),
+  /** 从商品名解析的颜色(极夜黑/皓月银);null=无法识别 */
+  color: z.string().nullable(),
+  /** 从商品名解析的规格(手机 12+512 / 电脑 i5 16+512 / 手表 42mm / 显示器 28.2寸) */
+  spec: z.string().nullable(),
+  productBrand: z.string().nullable(),
+  productModel: z.string().nullable(),
+  /** 零售指导价(官网价同步或手工维护);null=未定价 */
+  retailPrice: z.string().nullable(),
+  availableTotal: z.number().int().nonnegative(),
+  pendingTotal: z.number().int().nonnegative(),
+  otherTotal: z.number().int().nonnegative(),
+  warehouses: z.array(SearchSummaryWarehouseSchema),
+});
+
+export const SearchFacetSchema = z.object({
+  value: z.string(),
+  count: z.number().int().nonnegative(),
+});
+
+export const SearchSummarySchema = z.object({
+  totalSerials: z.number().int().nonnegative(),
+  skuCount: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+  /** 分类筛选桶:颜色与规格(按返回分组统计) */
+  facets: z.object({
+    colors: z.array(SearchFacetSchema),
+    specs: z.array(SearchFacetSchema),
+  }),
+  skuGroups: z.array(SearchSummarySkuGroupSchema),
+});
+
+export const SerialMovementSchema = z.object({
+  id: z.uuid(),
+  documentId: z.uuid(),
+  documentType: z.string(),
+  movementType: z.string(),
+  quantity: z.number().int(),
+  fromWarehouseName: z.string().nullable(),
+  toWarehouseName: z.string().nullable(),
+  occurredAt: z.iso.datetime(),
+});
+
+export const SerialDetailSchema = z.object({
+  id: z.uuid(),
+  imeiPrimary: z.string(),
+  imeiSecondary: z.string().nullable(),
+  serialNumber: z.string().nullable(),
+  status: SerialStatusSchema,
+  skuCode: z.string(),
+  skuName: z.string(),
+  productBrand: z.string().nullable(),
+  productModel: z.string().nullable(),
+  productCategory: z.string().nullable(),
+  retailPrice: z.string().nullable(),
+  warehouseId: z.uuid(),
+  warehouseCode: z.string(),
+  warehouseName: z.string(),
+  warehouseType: WarehouseTypeSchema,
+  storeName: z.string().nullable(),
+  responsibleEmployeeName: z.string().nullable(),
+  unitCost: z.string(),
+  receivedAt: z.iso.datetime(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  movements: z.array(SerialMovementSchema),
+});
+
 export type WarehouseType = z.infer<typeof WarehouseTypeSchema>;
 export type WarehouseOverviewItem = z.infer<typeof WarehouseOverviewItemSchema>;
 export type InventoryOverview = z.infer<typeof InventoryOverviewSchema>;
 export type WarehouseSerialItem = z.infer<typeof WarehouseSerialItemSchema>;
 export type WarehouseSerialList = z.infer<typeof WarehouseSerialListSchema>;
+export type SerialStatusValue = z.infer<typeof SerialStatusSchema>;
+export type SerialSearchItem = z.infer<typeof SerialSearchItemSchema>;
+export type SerialSearchResult = z.infer<typeof SerialSearchResultSchema>;
+export type SerialMovement = z.infer<typeof SerialMovementSchema>;
+export type SerialDetail = z.infer<typeof SerialDetailSchema>;
+export type SearchSummaryWarehouse = z.infer<
+  typeof SearchSummaryWarehouseSchema
+>;
+export type SearchSummarySkuGroup = z.infer<typeof SearchSummarySkuGroupSchema>;
+export type SearchSummary = z.infer<typeof SearchSummarySchema>;
+
+// ---- 调拨(AC-F-008/009,docs/12 状态机) ----
+
+export const TransferStatusSchema = z.enum([
+  "DRAFT",
+  "SUBMITTED",
+  "APPROVED",
+  "REJECTED",
+  "LOCKED",
+  "IN_TRANSIT",
+  "PARTIALLY_RECEIVED",
+  "RECEIVED",
+  "EXCEPTION",
+  "COMPLETED",
+  "CANCELLED",
+]);
+
+export const TransferLineStatusSchema = z.enum([
+  "PENDING",
+  "LOCKED",
+  "SHIPPED",
+  "RECEIVED",
+  "EXCEPTION",
+]);
+
+export const TransferExceptionTypeSchema = z.enum([
+  "MISSING",
+  "WRONG_ITEM",
+  "DAMAGED",
+  "REJECTED",
+  "TIMEOUT",
+]);
+
+export const TransferWarehouseSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  name: z.string(),
+  type: WarehouseTypeSchema,
+});
+
+export const TransferListItemSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  status: TransferStatusSchema,
+  fromWarehouse: TransferWarehouseSchema,
+  toWarehouse: TransferWarehouseSchema,
+  lineCount: z.number().int().nonnegative(),
+  remark: z.string().nullable(),
+  createdByName: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  shippedAt: z.iso.datetime().nullable(),
+  receivedAt: z.iso.datetime().nullable(),
+});
+
+export const TransferListSchema = z.object({
+  items: z.array(TransferListItemSchema),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+});
+
+export const TransferLineSchema = z.object({
+  id: z.uuid(),
+  serialId: z.uuid(),
+  imeiPrimary: z.string(),
+  serialNumber: z.string().nullable(),
+  serialStatus: SerialStatusSchema,
+  skuCode: z.string(),
+  skuName: z.string(),
+  productBrand: z.string().nullable(),
+  productModel: z.string().nullable(),
+  status: TransferLineStatusSchema,
+  exceptionType: TransferExceptionTypeSchema.nullable(),
+  exceptionNote: z.string().nullable(),
+  receivedByName: z.string().nullable(),
+  receivedAt: z.iso.datetime().nullable(),
+});
+
+export const TransferDetailSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  status: TransferStatusSchema,
+  fromWarehouse: TransferWarehouseSchema,
+  toWarehouse: TransferWarehouseSchema,
+  remark: z.string().nullable(),
+  rejectedReason: z.string().nullable(),
+  createdByName: z.string().nullable(),
+  approvedByName: z.string().nullable(),
+  shippedByName: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  submittedAt: z.iso.datetime().nullable(),
+  approvedAt: z.iso.datetime().nullable(),
+  lockedAt: z.iso.datetime().nullable(),
+  shippedAt: z.iso.datetime().nullable(),
+  receivedAt: z.iso.datetime().nullable(),
+  completedAt: z.iso.datetime().nullable(),
+  cancelledAt: z.iso.datetime().nullable(),
+  lines: z.array(TransferLineSchema),
+});
+
+export type TransferStatusValue = z.infer<typeof TransferStatusSchema>;
+export type TransferLineStatusValue = z.infer<typeof TransferLineStatusSchema>;
+export type TransferExceptionTypeValue = z.infer<
+  typeof TransferExceptionTypeSchema
+>;
+export type TransferWarehouse = z.infer<typeof TransferWarehouseSchema>;
+export type TransferListItem = z.infer<typeof TransferListItemSchema>;
+export type TransferList = z.infer<typeof TransferListSchema>;
+export type TransferLine = z.infer<typeof TransferLineSchema>;
+export type TransferDetail = z.infer<typeof TransferDetailSchema>;
+
+// ---- 盘点(docs/12 第 6 节;盘点期间仓库封存,2026-08-12 业务确认) ----
+
+export const StocktakeStatusSchema = z.enum([
+  "DRAFT",
+  "COUNTING",
+  "SUBMITTED",
+  "APPROVED",
+  "POSTED",
+  "CANCELLED",
+]);
+
+export const StocktakeDifferenceTypeSchema = z.enum(["MISSING", "UNEXPECTED"]);
+
+export const StocktakeListItemSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  status: StocktakeStatusSchema,
+  warehouse: TransferWarehouseSchema,
+  snapshotCount: z.number().int().nonnegative().nullable(),
+  scanCount: z.number().int().nonnegative(),
+  differenceCount: z.number().int().nonnegative(),
+  remark: z.string().nullable(),
+  createdByName: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  startedAt: z.iso.datetime().nullable(),
+  postedAt: z.iso.datetime().nullable(),
+});
+
+export const StocktakeListSchema = z.object({
+  items: z.array(StocktakeListItemSchema),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+});
+
+export const StocktakeDifferenceSchema = z.object({
+  id: z.uuid(),
+  type: StocktakeDifferenceTypeSchema,
+  imei: z.string(),
+  serialId: z.uuid().nullable(),
+  skuCode: z.string().nullable(),
+  skuName: z.string().nullable(),
+  serialStatus: z.string().nullable(),
+  note: z.string().nullable(),
+});
+
+export const StocktakeDetailSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  status: StocktakeStatusSchema,
+  warehouse: TransferWarehouseSchema,
+  snapshotCount: z.number().int().nonnegative().nullable(),
+  bookCount: z.number().int().nonnegative(),
+  scanCount: z.number().int().nonnegative(),
+  matchedCount: z.number().int().nonnegative(),
+  /** 已录入的实盘清单(imei + 匹配到的序列号 id;对照勾选盘点用) */
+  scans: z.array(
+    z.object({ imei: z.string(), serialId: z.uuid().nullable() }),
+  ),
+  remark: z.string().nullable(),
+  rejectedReason: z.string().nullable(),
+  createdByName: z.string().nullable(),
+  approvedByName: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  startedAt: z.iso.datetime().nullable(),
+  submittedAt: z.iso.datetime().nullable(),
+  approvedAt: z.iso.datetime().nullable(),
+  postedAt: z.iso.datetime().nullable(),
+  cancelledAt: z.iso.datetime().nullable(),
+  differences: z.array(StocktakeDifferenceSchema),
+});
+
+export const StocktakeScanResultSchema = z.object({
+  inserted: z.number().int().nonnegative(),
+  duplicated: z.number().int().nonnegative(),
+});
+
+export type StocktakeStatusValue = z.infer<typeof StocktakeStatusSchema>;
+export type StocktakeDifferenceTypeValue = z.infer<
+  typeof StocktakeDifferenceTypeSchema
+>;
+export type StocktakeListItem = z.infer<typeof StocktakeListItemSchema>;
+export type StocktakeList = z.infer<typeof StocktakeListSchema>;
+export type StocktakeDifference = z.infer<typeof StocktakeDifferenceSchema>;
+export type StocktakeDetail = z.infer<typeof StocktakeDetailSchema>;
+export type StocktakeScanResult = z.infer<typeof StocktakeScanResultSchema>;
+
+// ---- 采购(docs/12 第 3 节:审批/付款/收货三维度) ----
+
+export const PurchaseApprovalStatusSchema = z.enum([
+  "DRAFT",
+  "SUBMITTED",
+  "APPROVED",
+  "REJECTED",
+  "CANCELLED",
+]);
+
+export const PurchasePaymentStatusSchema = z.enum([
+  "UNPAID",
+  "PARTIALLY_PAID",
+  "PAID",
+]);
+
+export const PurchaseReceiptStatusSchema = z.enum([
+  "NOT_RECEIVED",
+  "PARTIALLY_RECEIVED",
+  "RECEIVED",
+]);
+
+export const SupplierSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  name: z.string(),
+  contactName: z.string().nullable(),
+  contactPhone: z.string().nullable(),
+  status: ProductStatusSchema,
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+
+export const SupplierListSchema = z.object({
+  items: z.array(SupplierSchema),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+});
+
+export const PurchaseSupplierRefSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  name: z.string(),
+});
+
+/** 金额均为后端 Decimal 序列化的字符串 */
+export const PurchaseOrderListItemSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  approvalStatus: PurchaseApprovalStatusSchema,
+  paymentStatus: PurchasePaymentStatusSchema,
+  receiptStatus: PurchaseReceiptStatusSchema,
+  supplier: PurchaseSupplierRefSchema,
+  warehouse: TransferWarehouseSchema,
+  totalAmount: z.string(),
+  paidAmount: z.string(),
+  orderedQuantitySum: z.number().int().nonnegative(),
+  receivedQuantitySum: z.number().int().nonnegative(),
+  lineCount: z.number().int().nonnegative(),
+  remark: z.string().nullable(),
+  createdByName: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  completedAt: z.iso.datetime().nullable(),
+});
+
+export const PurchaseOrderListSchema = z.object({
+  items: z.array(PurchaseOrderListItemSchema),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+});
+
+export const PurchaseOrderLineSchema = z.object({
+  id: z.uuid(),
+  skuId: z.uuid(),
+  skuCode: z.string(),
+  skuName: z.string(),
+  productBrand: z.string().nullable(),
+  productModel: z.string().nullable(),
+  quantity: z.number().int().positive(),
+  unitPrice: z.string(),
+  lineTotal: z.string(),
+  receivedQuantity: z.number().int().nonnegative(),
+});
+
+export const PurchasePaymentRecordSchema = z.object({
+  id: z.uuid(),
+  amount: z.string(),
+  method: z.string(),
+  note: z.string().nullable(),
+  paidAt: z.iso.datetime(),
+  createdByName: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+});
+
+export const PurchaseReceiptItemRecordSchema = z.object({
+  id: z.uuid(),
+  purchaseLineId: z.uuid(),
+  serialId: z.uuid(),
+  imeiPrimary: z.string(),
+});
+
+export const PurchaseReceiptRecordSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  note: z.string().nullable(),
+  receivedAt: z.iso.datetime(),
+  receivedByName: z.string().nullable(),
+  itemCount: z.number().int().nonnegative(),
+  items: z.array(PurchaseReceiptItemRecordSchema),
+});
+
+export const PurchaseOrderDetailSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  approvalStatus: PurchaseApprovalStatusSchema,
+  paymentStatus: PurchasePaymentStatusSchema,
+  receiptStatus: PurchaseReceiptStatusSchema,
+  supplier: PurchaseSupplierRefSchema,
+  warehouse: TransferWarehouseSchema,
+  totalAmount: z.string(),
+  paidAmount: z.string(),
+  orderedQuantitySum: z.number().int().nonnegative(),
+  receivedQuantitySum: z.number().int().nonnegative(),
+  remark: z.string().nullable(),
+  rejectedReason: z.string().nullable(),
+  createdByName: z.string().nullable(),
+  approvedByName: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  submittedAt: z.iso.datetime().nullable(),
+  approvedAt: z.iso.datetime().nullable(),
+  completedAt: z.iso.datetime().nullable(),
+  cancelledAt: z.iso.datetime().nullable(),
+  lines: z.array(PurchaseOrderLineSchema),
+  payments: z.array(PurchasePaymentRecordSchema),
+  receipts: z.array(PurchaseReceiptRecordSchema),
+});
+
+export type PurchaseApprovalStatusValue = z.infer<
+  typeof PurchaseApprovalStatusSchema
+>;
+export type PurchasePaymentStatusValue = z.infer<
+  typeof PurchasePaymentStatusSchema
+>;
+export type PurchaseReceiptStatusValue = z.infer<
+  typeof PurchaseReceiptStatusSchema
+>;
+export type Supplier = z.infer<typeof SupplierSchema>;
+export type SupplierList = z.infer<typeof SupplierListSchema>;
+export type PurchaseOrderListItem = z.infer<typeof PurchaseOrderListItemSchema>;
+export type PurchaseOrderList = z.infer<typeof PurchaseOrderListSchema>;
+export type PurchaseOrderLine = z.infer<typeof PurchaseOrderLineSchema>;
+export type PurchasePaymentRecord = z.infer<typeof PurchasePaymentRecordSchema>;
+export type PurchaseReceiptRecord = z.infer<typeof PurchaseReceiptRecordSchema>;
+export type PurchaseOrderDetail = z.infer<typeof PurchaseOrderDetailSchema>;

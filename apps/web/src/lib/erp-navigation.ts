@@ -37,8 +37,8 @@ export const navigationGroups: NavigationGroup[] = [
     label: "经营总览",
     items: [
       { label: "经营工作台", href: "/", icon: "dashboard", status: "ready" },
-      { label: "全局查货", href: "/search", icon: "search", status: "planned" },
-      { label: "我的待办", href: "/tasks", icon: "task", badge: "6", status: "planned" },
+      { label: "全局查货", href: "/search", icon: "search", badge: "可用", status: "ready" },
+      { label: "我的待办", href: "/tasks", icon: "task", status: "planned" },
     ],
   },
   {
@@ -46,8 +46,9 @@ export const navigationGroups: NavigationGroup[] = [
     items: [
       { label: "货品中心", href: "/catalog/products", icon: "catalog", badge: "可用", status: "ready" },
       { label: "库存管理", href: "/inventory", icon: "inventory", badge: "可用", status: "ready" },
-      { label: "采购管理", href: "/procurement/orders", icon: "procurement", status: "planned" },
-      { label: "调拨管理", href: "/transfers", icon: "transfer", status: "planned" },
+      { label: "盘点管理", href: "/inventory/stocktakes", icon: "inventory", badge: "可用", status: "ready" },
+      { label: "采购管理", href: "/procurement/orders", icon: "procurement", badge: "可用", status: "ready" },
+      { label: "调拨管理", href: "/transfers", icon: "transfer", badge: "可用", status: "ready" },
       { label: "销售管理", href: "/sales/orders", icon: "sales", badge: "待确认", status: "blocked" },
     ],
   },
@@ -63,10 +64,10 @@ export const navigationGroups: NavigationGroup[] = [
   {
     label: "组织与系统",
     items: [
-      { label: "组织与员工", href: "/admin/organization", icon: "organization", status: "planned" },
-      { label: "权限与审批", href: "/admin/roles", icon: "shield", status: "planned" },
+      { label: "组织与员工", href: "/admin/organization", icon: "organization", badge: "可用", status: "ready" },
+      { label: "权限与审批", href: "/admin/roles", icon: "shield", badge: "可用", status: "ready" },
       { label: "集成中心", href: "/integrations", icon: "integration", status: "planned" },
-      { label: "系统设置", href: "/system/health", icon: "system", status: "planned" },
+      { label: "系统设置", href: "/system/health", icon: "system", badge: "可用", status: "ready" },
     ],
   },
 ];
@@ -82,19 +83,7 @@ export interface ModulePageDefinition {
 }
 
 export const modulePages: Record<string, ModulePageDefinition> = {
-  "/search": {
-    eyebrow: "全局能力 · AC-F-004",
-    title: "全局查货",
-    description: "按型号、SKU、条码与 IMEI/SN 查找货品位置、库存状态和责任归属。",
-    status: "下一阶段",
-    statusTone: "neutral",
-    capabilities: [
-      { title: "多维检索", description: "一个搜索框覆盖商品、SKU、条码和串号。" },
-      { title: "库存定位", description: "下钻到门店、仓库、个人库与在途状态。" },
-      { title: "单机时间线", description: "展示每台设备的收货、调拨、销售和售后轨迹。" },
-    ],
-    milestones: ["确认仓库映射", "建立库存流水", "接入串号时间线"],
-  },
+  // /search 已由真实页面实现（apps/web/src/app/search），不再使用占位页。
   "/tasks": {
     eyebrow: "协同中心",
     title: "我的待办",
@@ -134,32 +123,8 @@ export const modulePages: Record<string, ModulePageDefinition> = {
     ],
     milestones: ["确认 72 个源仓库映射", "签字负库存规则", "建立库存流水"],
   },
-  "/procurement/orders": {
-    eyebrow: "采购中心",
-    title: "采购管理",
-    description: "覆盖供应商、采购申请、审批、付款、到货与差异处理。",
-    status: "下一阶段",
-    statusTone: "neutral",
-    capabilities: [
-      { title: "采购订单", description: "从申请、审批到下单保留完整业务链路。" },
-      { title: "付款与到货", description: "资金确认和实物收货分开握手。" },
-      { title: "差异处理", description: "识别已付未到、少收、超收和串号异常。" },
-    ],
-    milestones: ["确认供应商主档", "确认采购审批额度", "确认收货差异规则"],
-  },
-  "/transfers": {
-    eyebrow: "调拨中心",
-    title: "调拨管理",
-    description: "管理门店、仓库和个人库之间的申请、发出、在途与接收。",
-    status: "下一阶段",
-    statusTone: "neutral",
-    capabilities: [
-      { title: "双向握手", description: "发出方与接收方分别确认，避免单边完成。" },
-      { title: "扫码接收", description: "支持扫码枪和手机连续扫描，自动防重。" },
-      { title: "在途责任", description: "明确锁定、在途、差异和最终责任人。" },
-    ],
-    milestones: ["确认调拨审批", "建立状态机", "完成移动端接收"],
-  },
+  // /procurement/orders 已由真实页面实现（apps/web/src/app/procurement/orders），不再使用占位页。
+  // /transfers 已由真实页面实现（apps/web/src/app/transfers），不再使用占位页。
   "/sales/orders": {
     eyebrow: "销售中心",
     title: "销售管理",
@@ -225,32 +190,8 @@ export const modulePages: Record<string, ModulePageDefinition> = {
     ],
     milestones: ["业务模块形成事实数据", "签字经营指标", "完成移动大屏适配"],
   },
-  "/admin/organization": {
-    eyebrow: "组织中心",
-    title: "组织与员工",
-    description: "配置公司、区域、门店、仓库、员工、账号与离职交接关系。",
-    status: "下一阶段",
-    statusTone: "neutral",
-    capabilities: [
-      { title: "组织树", description: "维护公司、区域、门店与仓库层级。" },
-      { title: "员工档案", description: "记录任职、兼岗、门店归属和账号状态。" },
-      { title: "离职交接", description: "交接库存、客户、待办和在途责任。" },
-    ],
-    milestones: ["导入真实组织", "建立员工账号", "确认兼岗与离职规则"],
-  },
-  "/admin/roles": {
-    eyebrow: "权限中心",
-    title: "权限与审批",
-    description: "按角色、数据范围、动作、字段和审批额度构建企业级权限体系。",
-    status: "下一阶段",
-    statusTone: "neutral",
-    capabilities: [
-      { title: "五维权限", description: "Role × DataScope × Action × Field × Approval。" },
-      { title: "敏感字段", description: "成本、毛利、客户手机号和账户按角色控制。" },
-      { title: "完整审计", description: "高风险操作二次确认并记录前后值。" },
-    ],
-    milestones: ["确认角色名单", "签字权限矩阵", "建立越权反向测试"],
-  },
+  // /admin/organization 已由真实页面实现（apps/web/src/app/admin/organization），不再使用占位页。
+  // /admin/roles 已由真实页面实现（apps/web/src/app/admin/roles），不再使用占位页。
   "/integrations": {
     eyebrow: "开放平台",
     title: "集成中心",
@@ -264,17 +205,5 @@ export const modulePages: Record<string, ModulePageDefinition> = {
     ],
     milestones: ["确认平台主体", "确认 API 权限", "建立同步与降级方案"],
   },
-  "/system/health": {
-    eyebrow: "系统管理",
-    title: "系统设置",
-    description: "管理系统健康、导入任务、审计日志、基础参数与部署状态。",
-    status: "规划中",
-    statusTone: "neutral",
-    capabilities: [
-      { title: "系统健康", description: "监控网站、API、数据库、队列和备份状态。" },
-      { title: "任务中心", description: "管理导入、导出、同步和失败重试。" },
-      { title: "审计查询", description: "按操作人、对象、动作和 request_id 检索。" },
-    ],
-    milestones: ["确认部署环境", "建立备份策略", "接入监控告警"],
-  },
+  // /system/health 已由真实页面实现（apps/web/src/app/system/health），不再使用占位页。
 };
