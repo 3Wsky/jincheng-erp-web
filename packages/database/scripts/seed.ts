@@ -184,6 +184,8 @@ async function main(): Promise<void> {
           employeeId,
           username: DEFAULT_ADMIN_USERNAME,
           passwordHash,
+          // 种子密码是公开值,首次登录必须修改
+          mustChangePassword: true,
         },
       }),
       database.userRole.create({

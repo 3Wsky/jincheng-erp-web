@@ -81,6 +81,25 @@ export class JwtAuthGuard implements CanActivate {
     if (account.employee.status === "INACTIVE" || account.employee.status === "LEAVING") {
       throw new ForbiddenException("员工状态不允许登录，请联系管理员");
     }
+    // 令牌吊销:签发时间早于最后改密时间的 JWT 一律拒绝(改密/重置即踢掉旧会话)。
+    // 双方都取整到秒比较,避免改密后同秒重新登录的新令牌被误杀。
+    if (
+      account.passwordChangedAt &&
+      payload.iat < Math.floor(account.passwordChangedAt.getTime() / 1000)
+    ) {
+      throw new UnauthorizedException("密码已修改，请重新登录");
+    }
+    // 强制改密:未完成首次改密的账号只能访问改密/会话/登出接口,其余一律拒绝
+    // (防止绕过前端跳转直接调业务接口)
+    if (account.mustChangePassword) {
+      const url = (request as unknown as { url?: string }).url ?? "";
+      const allowed = ["/auth/password", "/auth/me", "/auth/logout"];
+      if (!allowed.some((path) => url.includes(path))) {
+        throw new ForbiddenException(
+          "首次登录必须先修改密码（账号菜单 → 修改密码）",
+        );
+      }
+    }
 
     const roles = account.roles.map((relation) => ({
       id: relation.role.id,

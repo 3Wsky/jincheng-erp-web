@@ -456,6 +456,8 @@ export class OrganizationService {
             employeeId: input.employeeId,
             username,
             passwordHash,
+            // 新开账号首次登录必须改密(初始密码由管理员告知,不能长期使用)
+            mustChangePassword: true,
             roles: {
               create: input.roleIds.map((roleId) => ({
                 roleId,
@@ -496,6 +498,9 @@ export class OrganizationService {
     if (input.isFrozen !== undefined) data.isFrozen = input.isFrozen;
     if (input.password !== undefined) {
       data.passwordHash = await hashPassword(input.password);
+      // 管理员重置密码:吊销旧令牌(passwordChangedAt),并要求用户首登改密
+      data.passwordChangedAt = new Date();
+      data.mustChangePassword = true;
     }
     if (input.roleIds !== undefined) {
       const roles = await this.database.client.role.findMany({

@@ -195,6 +195,10 @@ model UserAccount {
   username     String     @unique
   passwordHash String
   isFrozen     Boolean    @default(false)
+  /// 密码最后修改时间:JWT 签发时间早于此值的令牌一律拒绝(改密/重置即吊销旧令牌)
+  passwordChangedAt DateTime? @db.Timestamptz(3)
+  /// 首次登录必须修改密码(新开账号与种子 admin 默认开启)
+  mustChangePassword Boolean @default(false)
   employee     Employee   @relation(fields: [employeeId], references: [id])
   roles        UserRole[]
   auditLogs    AuditLog[]

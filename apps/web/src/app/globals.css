@@ -3317,6 +3317,41 @@ code {
   font-weight: 600;
 }
 
+/* 修改密码页 */
+.password-panel {
+  max-width: 480px;
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.password-form {
+  display: grid;
+  gap: 14px;
+}
+
+.password-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.password-form label span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.password-form input {
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.password-form input:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+
 /* ============================================================
  * 查货聚合视图:按商品汇总「哪个仓库有几台可售」
  * ============================================================ */
@@ -3673,6 +3708,15 @@ code {
     font-size: 14px;
     font-weight: 700;
     text-align: right;
+  }
+
+  .print-report .print-sign-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 28px;
+    font-size: 12px;
   }
 }
 

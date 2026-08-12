@@ -79,8 +79,14 @@ export function UserMenu() {
               <strong>{user?.employeeName ?? "未登录用户"}</strong>
               <small>{user?.organizationName ?? "锦程 ERP"}</small>
             </div>
-            <button onClick={() => setMenuOpen(false)} type="button">
-              账号信息
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                router.push("/account/password");
+              }}
+              type="button"
+            >
+              修改密码
             </button>
             <button className="danger" onClick={logout} type="button">
               退出登录

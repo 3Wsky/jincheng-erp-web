@@ -206,10 +206,16 @@ export class AuthService {
       throw new UnauthorizedException("原密码不正确");
     }
     const nextHash = await hashPassword(newPassword);
+    const changedAt = new Date();
     await this.database.client.$transaction([
       this.database.client.userAccount.update({
         where: { id: userId },
-        data: { passwordHash: nextHash },
+        data: {
+          passwordHash: nextHash,
+          // 改密即吊销:早于该时间签发的 JWT 全部失效(auth.guard 校验 iat)
+          passwordChangedAt: changedAt,
+          mustChangePassword: false,
+        },
       }),
       this.database.client.auditLog.create({
         data: {
@@ -218,7 +224,7 @@ export class AuthService {
           resource: "user_account",
           resourceId: userId,
           requestId,
-          afterData: { changedAt: new Date().toISOString() },
+          afterData: { changedAt: changedAt.toISOString() },
         },
       }),
     ]);
@@ -317,6 +323,8 @@ export class AuthService {
       employeeName: account.employee.name,
       status: account.employee.status,
       isFrozen: account.isFrozen,
+      /** 首次登录/管理员重置后必须改密,前端据此强制跳转改密 */
+      mustChangePassword: account.mustChangePassword,
       organizationId: account.employee.organizationId,
       organizationName: account.employee.organization.name,
       storeId: account.employee.storeId,

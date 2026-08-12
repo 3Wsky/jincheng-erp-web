@@ -1,0 +1,47 @@
+# CI 质量门禁:push/PR 必须通过 lint、typecheck、单元测试
+# (docs/19 技术债 P1:合并前质量门禁;测试为纯函数/装配测试,不依赖数据库)
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: lint / typecheck / test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 生成 Prisma Client
+        run: pnpm db:generate
+
+      - name: 构建工作区包(contracts/database)
+        run: pnpm --filter @jincheng/contracts build && pnpm --filter @jincheng/database build
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 单元测试
+        run: pnpm test

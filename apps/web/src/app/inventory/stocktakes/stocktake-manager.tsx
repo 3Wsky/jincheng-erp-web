@@ -919,8 +919,15 @@ export function StocktakeManager() {
                 {/* 差异清单 */}
                 {detail.differences.length > 0 ? (
                   <>
-                    <div className="drawer-section">
+                    <div className="drawer-section stocktake-entry-head">
                       <h3>差异清单（{detail.differences.length} 条）</h3>
+                      <button
+                        className="button secondary"
+                        type="button"
+                        onClick={() => window.print()}
+                      >
+                        打印差异单
+                      </button>
                     </div>
                     <div className="drawer-table-wrap">
                       <table className="drawer-table">
@@ -960,6 +967,65 @@ export function StocktakeManager() {
               </>
             ) : null}
           </aside>
+        </div>
+      ) : null}
+
+      {/* 盘点差异单打印(屏幕隐藏,打印时独占页面;供仓管/审批人纸面签字) */}
+      {detailOpen && detail && detail.differences.length > 0 ? (
+        <div className="print-report">
+          <h1>锦程 ERP · 盘点差异单</h1>
+          <p className="print-meta">
+            单号：{detail.code} · 仓库：{detail.warehouse.name} · 状态：
+            {STATUS_LABELS[detail.status] ?? detail.status} · 打印时间：
+            {new Date().toLocaleString("zh-CN", { hour12: false })}
+          </p>
+          <p className="print-meta">
+            账面：{detail.snapshotCount ?? detail.bookCount} 台 · 实盘录入：
+            {detail.scanCount} 条 · 盘亏：
+            {
+              detail.differences.filter(
+                (difference) => difference.type === "MISSING",
+              ).length
+            }{" "}
+            台 · 盘盈/串仓：
+            {
+              detail.differences.filter(
+                (difference) => difference.type === "UNEXPECTED",
+              ).length
+            }{" "}
+            台
+            {detail.remark ? ` · 备注：${detail.remark}` : ""}
+          </p>
+          <div className="print-section">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: "70px" }}>类型</th>
+                  <th style={{ width: "150px" }}>IMEI / SN</th>
+                  <th>商品</th>
+                  <th>说明</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detail.differences.map((difference) => (
+                  <tr key={difference.id}>
+                    <td>
+                      {DIFFERENCE_LABELS[difference.type] ?? difference.type}
+                    </td>
+                    <td>{difference.imei}</td>
+                    <td>{difference.skuName ?? "—"}</td>
+                    <td>{difference.note ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="print-sign-row">
+            <span>盘点人：{detail.createdByName ?? "＿＿＿＿＿＿"}</span>
+            <span>审批人：{detail.approvedByName ?? "＿＿＿＿＿＿"}</span>
+            <span>仓库负责人签字：＿＿＿＿＿＿</span>
+            <span>日期：＿＿＿＿年＿＿月＿＿日</span>
+          </div>
         </div>
       ) : null}
     </div>

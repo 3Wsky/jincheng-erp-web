@@ -25,13 +25,19 @@ function LoginForm() {
       });
       const payload = (await response.json().catch(() => ({}))) as {
         message?: string | string[];
-        user?: { employeeName?: string };
+        user?: { employeeName?: string; mustChangePassword?: boolean };
       };
       if (!response.ok) {
         const message = Array.isArray(payload.message)
           ? payload.message[0]
           : payload.message;
         setError(message || "登录失败，请稍后重试");
+        return;
+      }
+      // 首次登录/管理员重置后必须先改密(账号安全,AC-F-001)
+      if (payload.user?.mustChangePassword) {
+        router.push("/account/password?required=1");
+        router.refresh();
         return;
       }
       const next = searchParams.get("next");
