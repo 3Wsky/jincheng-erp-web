@@ -41,7 +41,6 @@ const WRITE_METHODS = [
   "approve",
   "reject",
   "cancel",
-  "addPayment",
   "addReceipt",
   "complete",
 ];
@@ -59,5 +58,11 @@ describe("ProcurementController 鉴权装配", () => {
     expect(permissionCodes(methodGuards(method))).toContain(
       "procurement:write",
     );
+  });
+
+  it("付款接口 addPayment 要求 procurement:pay(钱账分离,2026-08-12 业务确认)", () => {
+    const codes = permissionCodes(methodGuards("addPayment"));
+    expect(codes).toContain("procurement:pay");
+    expect(codes).not.toContain("procurement:write");
   });
 });

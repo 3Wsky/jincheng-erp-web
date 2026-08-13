@@ -137,9 +137,10 @@ export class ProcurementController {
   }
 
   @Post("purchase-orders/:id/payments")
-  @UseGuards(requirePermissions("procurement:write"))
+  @UseGuards(requirePermissions("procurement:pay"))
   @ApiOperation({
-    summary: "登记付款:创建付款单据并累加已付金额(超付拒绝,容差待签字)",
+    summary:
+      "登记付款:创建付款单据并累加已付金额(钱账分离,需 procurement:pay——出纳/管理员;超付拒绝,容差待签字)",
   })
   addPayment(
     @Param("id", ParseUUIDPipe) id: string,

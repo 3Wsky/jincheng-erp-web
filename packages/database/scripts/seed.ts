@@ -27,6 +27,8 @@ const PERMISSIONS: Array<{ code: string; resource: string; action: string }> = [
   { code: "transfer:write", resource: "transfer", action: "write" },
   { code: "procurement:read", resource: "procurement", action: "read" },
   { code: "procurement:write", resource: "procurement", action: "write" },
+  // 付款执行独立于单据操作:钱账分离(2026-08-12 业务确认财务/出纳分设)
+  { code: "procurement:pay", resource: "procurement", action: "pay" },
   { code: "sales:read", resource: "sales", action: "read" },
   { code: "sales:write", resource: "sales", action: "write" },
   { code: "customer:read", resource: "customer", action: "read" },
@@ -48,14 +50,21 @@ interface RoleDefinition {
   permissions: string[] | "ALL";
 }
 
+/**
+ * 首批角色矩阵(2026-08-12 业务确认核心五岗:管理员/财务/出纳/库管/人事;
+ * 店长/销售/老板/运营保留供门店端上线使用)。
+ * 钱账分离:财务管账与审核(procurement:write + finance:write),
+ * 出纳执行付款(procurement:pay),两者不互相兼有。
+ */
 const ROLES: RoleDefinition[] = [
   { code: "ADMIN", name: "系统管理员", permissions: "ALL" },
   { code: "BOSS", name: "老板", permissions: ["catalog:read", "inventory:read", "transfer:read", "procurement:read", "sales:read", "customer:read", "finance:read", "report:read", "organization:read"] },
   { code: "STORE_MANAGER", name: "店长", permissions: ["catalog:read", "inventory:read", "inventory:write", "transfer:read", "transfer:write", "procurement:read", "sales:read", "sales:write", "customer:read", "customer:write", "report:read", "organization:read"] },
   { code: "WAREHOUSE_KEEPER", name: "库管", permissions: ["catalog:read", "inventory:read", "inventory:write", "transfer:read", "transfer:write", "procurement:read", "procurement:write"] },
-  { code: "FINANCE", name: "财务", permissions: ["catalog:read", "inventory:read", "transfer:read", "procurement:read", "procurement:write", "sales:read", "finance:read", "finance:write", "report:read"] },
+  { code: "FINANCE", name: "财务", permissions: ["catalog:read", "inventory:read", "transfer:read", "procurement:read", "procurement:write", "sales:read", "customer:read", "finance:read", "finance:write", "report:read", "audit:read"] },
+  { code: "CASHIER", name: "出纳", permissions: ["catalog:read", "inventory:read", "procurement:read", "procurement:pay", "finance:read", "report:read"] },
   { code: "SALES", name: "销售", permissions: ["catalog:read", "inventory:read", "transfer:read", "sales:read", "sales:write", "customer:read", "customer:write"] },
-  { code: "HR", name: "人事", permissions: ["organization:read", "organization:write", "report:read"] },
+  { code: "HR", name: "人事", permissions: ["organization:read", "organization:write", "account:write", "role:read", "report:read"] },
   { code: "OPERATOR", name: "运营", permissions: ["catalog:read", "customer:read", "report:read"] },
 ];
 
@@ -98,19 +107,19 @@ async function main(): Promise<void> {
   const permissionIdByCode = new Map(
     allPermissions.map((item) => [item.code, item.id]),
   );
+  // 角色权限以本文件定义为权威来源:已存在的角色同步权限(删除重建关联),
+  // 避免矩阵调整(如 2026-08-12 新增出纳/钱账分离)无法落库
   for (const role of ROLES) {
     const existing = await database.role.findUnique({
       where: { code: role.code },
-      include: { permissions: { select: { permissionId: true } } },
+      select: { id: true },
     });
-    if (existing) {
-      console.log(`[seed] 角色 ${role.code} 已存在，跳过`);
-      continue;
+    const roleId = existing?.id ?? randomUUID();
+    if (!existing) {
+      await database.role.create({
+        data: { id: roleId, code: role.code, name: role.name },
+      });
     }
-    const roleId = randomUUID();
-    await database.role.create({
-      data: { id: roleId, code: role.code, name: role.name },
-    });
     const allowedCodes =
       role.permissions === "ALL"
         ? PERMISSIONS.map((item) => item.code)
@@ -121,10 +130,13 @@ async function main(): Promise<void> {
         return permissionId ? { roleId, permissionId } : null;
       })
       .filter((item): item is { roleId: string; permissionId: string } => item !== null);
-    if (linkData.length > 0) {
-      await database.rolePermission.createMany({ data: linkData });
-    }
-    console.log(`[seed] 创建角色 ${role.code}（${linkData.length} 项权限）`);
+    await database.$transaction([
+      database.rolePermission.deleteMany({ where: { roleId } }),
+      database.rolePermission.createMany({ data: linkData }),
+    ]);
+    console.log(
+      `[seed] ${existing ? "同步角色" : "创建角色"} ${role.code}（${linkData.length} 项权限）`,
+    );
   }
 
   // 3. 默认组织与门店
