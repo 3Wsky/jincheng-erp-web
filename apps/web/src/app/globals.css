@@ -3149,6 +3149,41 @@ code {
   background: #fafbfc;
 }
 
+/* 接收扫码框:扫码枪/手工输入串号自动勾选在途明细 */
+.transfer-scan-box {
+  display: flex;
+  flex: 1 1 100%;
+  gap: 8px;
+}
+
+.transfer-scan-box .input {
+  flex: 1;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.transfer-scan-feedback {
+  flex: 1 1 100%;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.transfer-scan-feedback.ok {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.transfer-scan-feedback.warn {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.transfer-scan-feedback.error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
 .transfer-picked > span {
   color: var(--ink-soft);
   font-size: 12px;

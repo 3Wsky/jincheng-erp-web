@@ -39,6 +39,7 @@ const WRITE_METHODS = [
   "approve",
   "reject",
   "lock",
+  "unlock",
   "ship",
   "receive",
   "markExceptions",

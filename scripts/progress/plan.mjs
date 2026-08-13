@@ -94,6 +94,7 @@ export const PLANNED_APIS = [
   { id: "API-TRF-010", method: "POST", path: "/transfers/{id}/exceptions", module: "transfer" },
   { id: "API-TRF-011", method: "POST", path: "/transfers/{id}/complete", module: "transfer" },
   { id: "API-TRF-012", method: "POST", path: "/transfers/{id}/cancel", module: "transfer" },
+  { id: "API-TRF-013", method: "POST", path: "/transfers/{id}/unlock", module: "transfer" },
   { id: "API-PUR-001", method: "GET", path: "/suppliers", module: "procurement" },
   { id: "API-PUR-002", method: "POST", path: "/suppliers", module: "procurement" },
   { id: "API-PUR-003", method: "PATCH", path: "/suppliers/{id}", module: "procurement" },

@@ -86,6 +86,15 @@ export class TransferController {
     return this.transfers.lock(id, request);
   }
 
+  @Post(":id/unlock")
+  @UseGuards(requirePermissions("transfer:write"))
+  @ApiOperation({
+    summary: "解锁退回:LOCKED → APPROVED(释放已锁定序列号,可重新锁定或撤单)",
+  })
+  unlock(@Param("id", ParseUUIDPipe) id: string, @Req() request: AuthenticatedRequest) {
+    return this.transfers.unlock(id, request);
+  }
+
   @Post(":id/ship")
   @UseGuards(requirePermissions("transfer:write"))
   @ApiOperation({ summary: "发出:LOCKED → IN_TRANSIT(写 TRANSFER_OUT 流水)" })

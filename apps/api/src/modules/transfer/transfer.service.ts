@@ -351,13 +351,57 @@ export class TransferService {
     return this.detail(id);
   }
 
-  /** DRAFT/SUBMITTED → CANCELLED(未锁库存前才允许取消,docs/12 通用规则) */
+  /**
+   * DRAFT/SUBMITTED/APPROVED → CANCELLED(未锁库存前才允许取消,docs/12 通用规则;
+   * 已审批未锁库无库存影响,2026-08-13 补充;已锁库需先解锁退回)
+   */
   async cancel(id: string, request: AuthenticatedRequest) {
     await this.transition(id, request, {
       action: "transfer.cancel",
-      from: [TransferStatus.DRAFT, TransferStatus.SUBMITTED],
+      from: [
+        TransferStatus.DRAFT,
+        TransferStatus.SUBMITTED,
+        TransferStatus.APPROVED,
+      ],
       to: TransferStatus.CANCELLED,
       data: { cancelledAt: new Date() },
+    });
+    return this.detail(id);
+  }
+
+  /**
+   * 解锁退回:LOCKED → APPROVED,释放已锁定的序列号(LOCKED → NORMAL,计数校验)。
+   * 场景:审批锁库后对方取消需求/发不出货,退回后可重新锁定或撤单(2026-08-13 补充)。
+   */
+  async unlock(id: string, request: AuthenticatedRequest) {
+    await this.database.client.$transaction(async (tx) => {
+      await this.transitionInTx(tx, id, request, {
+        action: "transfer.unlock",
+        from: [TransferStatus.LOCKED],
+        to: TransferStatus.APPROVED,
+        data: { lockedAt: null },
+      });
+
+      const lines = await tx.transferLine.findMany({
+        where: { transferId: id, status: TransferLineStatus.LOCKED },
+        select: { serialId: true },
+      });
+      const serialIds = lines.map((line) => line.serialId);
+      if (serialIds.length > 0) {
+        const released = await tx.serialItem.updateMany({
+          where: { id: { in: serialIds }, status: "LOCKED" },
+          data: { status: "NORMAL" },
+        });
+        if (released.count !== serialIds.length) {
+          throw new ConflictException(
+            "解锁失败:部分设备状态已变化,请刷新后重试",
+          );
+        }
+        await tx.transferLine.updateMany({
+          where: { transferId: id, status: TransferLineStatus.LOCKED },
+          data: { status: TransferLineStatus.PENDING },
+        });
+      }
     });
     return this.detail(id);
   }

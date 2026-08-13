@@ -12,7 +12,7 @@ import {
   type WarehouseOverviewItem,
   type WarehouseSerialItem,
 } from "@jincheng/contracts";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 const PAGE_SIZE = 20;
 
@@ -131,6 +131,11 @@ export function TransferManager() {
   const [rejectReason, setRejectReason] = useState("");
   const [showReject, setShowReject] = useState(false);
   const [checkedSerials, setCheckedSerials] = useState<Set<string>>(new Set());
+  const [scanInput, setScanInput] = useState("");
+  const [scanFeedback, setScanFeedback] = useState<{
+    tone: "ok" | "warn" | "error";
+    text: string;
+  } | null>(null);
   const [exceptionType, setExceptionType] =
     useState<TransferExceptionTypeValue>("MISSING");
   const [exceptionNote, setExceptionNote] = useState("");
@@ -188,6 +193,8 @@ export function TransferManager() {
     setShowReject(false);
     setShowException(false);
     setCheckedSerials(new Set());
+    setScanInput("");
+    setScanFeedback(null);
     setDetailLoading(true);
     try {
       const payload = TransferDetailSchema.parse(
@@ -217,6 +224,7 @@ export function TransferManager() {
         );
         setDetail(payload);
         setCheckedSerials(new Set());
+        setScanFeedback(null);
         setShowReject(false);
         setShowException(false);
         setRejectReason("");
@@ -323,9 +331,47 @@ export function TransferManager() {
     });
   }, []);
 
-  const shippedLines = detail
-    ? detail.lines.filter((line) => line.status === "SHIPPED")
-    : [];
+  const shippedLines = useMemo(
+    () => (detail ? detail.lines.filter((line) => line.status === "SHIPPED") : []),
+    [detail],
+  );
+
+  /** 扫码/输入串号自动勾选在途明细(支持完整 IMEI 或 ≥4 位尾号唯一匹配) */
+  const applyScanInput = useCallback(() => {
+    const code = scanInput.trim().toLowerCase();
+    if (!code) return;
+    let matched = shippedLines.filter(
+      (line) => line.imeiPrimary.toLowerCase() === code,
+    );
+    if (matched.length === 0 && code.length >= 4) {
+      matched = shippedLines.filter((line) =>
+        line.imeiPrimary.toLowerCase().endsWith(code),
+      );
+    }
+    const hit = matched.length === 1 ? matched[0] : undefined;
+    if (!hit) {
+      setScanFeedback(
+        matched.length === 0
+          ? { tone: "error", text: `未找到在途设备:${scanInput.trim()}` }
+          : {
+              tone: "error",
+              text: `尾号 ${scanInput.trim()} 匹配到 ${matched.length} 台,请输入完整串号`,
+            },
+      );
+    } else if (checkedSerials.has(hit.serialId)) {
+      setScanFeedback({
+        tone: "warn",
+        text: `重复扫码:${hit.imeiPrimary} 已在待接收列表`,
+      });
+    } else {
+      setCheckedSerials((current) => new Set(current).add(hit.serialId));
+      setScanFeedback({
+        tone: "ok",
+        text: `已勾选 ${hit.imeiPrimary} · ${productLabel(hit.productBrand, hit.productModel)}`,
+      });
+    }
+    setScanInput("");
+  }, [scanInput, shippedLines, checkedSerials]);
   const receivable =
     detail &&
     (detail.status === "IN_TRANSIT" || detail.status === "PARTIALLY_RECEIVED");
@@ -759,27 +805,84 @@ export function TransferManager() {
                     </>
                   ) : null}
                   {detail.status === "APPROVED" ? (
-                    <button
-                      className="button primary"
-                      disabled={busy !== null}
-                      type="button"
-                      onClick={() => void runCommand("lock", "/lock")}
-                    >
-                      锁定来源库存
-                    </button>
+                    <>
+                      <button
+                        className="button primary"
+                        disabled={busy !== null}
+                        type="button"
+                        onClick={() => void runCommand("lock", "/lock")}
+                      >
+                        锁定来源库存
+                      </button>
+                      <button
+                        className="button ghost"
+                        disabled={busy !== null}
+                        type="button"
+                        onClick={() => void runCommand("cancel", "/cancel")}
+                      >
+                        撤销单据
+                      </button>
+                    </>
                   ) : null}
                   {detail.status === "LOCKED" ? (
+                    <>
+                      <button
+                        className="button primary"
+                        disabled={busy !== null}
+                        type="button"
+                        onClick={() => void runCommand("ship", "/ship")}
+                      >
+                        确认发出
+                      </button>
+                      <button
+                        className="button secondary"
+                        disabled={busy !== null}
+                        type="button"
+                        onClick={() => void runCommand("unlock", "/unlock")}
+                      >
+                        解锁退回（释放库存）
+                      </button>
+                    </>
+                  ) : null}
+                  {detail.lines.length > 0 &&
+                  !["DRAFT", "CANCELLED", "REJECTED"].includes(detail.status) ? (
                     <button
-                      className="button primary"
-                      disabled={busy !== null}
+                      className="button secondary"
                       type="button"
-                      onClick={() => void runCommand("ship", "/ship")}
+                      onClick={() => window.print()}
                     >
-                      确认发出
+                      打印调拨单
                     </button>
                   ) : null}
                   {receivable && shippedLines.length > 0 ? (
                     <>
+                      <div className="transfer-scan-box">
+                        <input
+                          className="input"
+                          placeholder="扫码或输入串号(≥4 位尾号)回车,自动勾选明细"
+                          value={scanInput}
+                          onChange={(event) => setScanInput(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              applyScanInput();
+                            }
+                          }}
+                        />
+                        <button
+                          className="button secondary"
+                          disabled={!scanInput.trim()}
+                          type="button"
+                          onClick={applyScanInput}
+                        >
+                          核对
+                        </button>
+                      </div>
+                      {scanFeedback ? (
+                        <div className={`transfer-scan-feedback ${scanFeedback.tone}`}>
+                          {scanFeedback.text}
+                        </div>
+                      ) : null}
                       <button
                         className="button primary"
                         disabled={busy !== null || checkedSerials.size === 0}
@@ -944,6 +1047,56 @@ export function TransferManager() {
               </>
             ) : null}
           </aside>
+        </div>
+      ) : null}
+
+      {/* 调拨单打印(屏幕隐藏,打印时独占页面;发货纸面交接凭证,发出/承运/接收三方签字) */}
+      {detailOpen && detail && detail.lines.length > 0 ? (
+        <div className="print-report">
+          <h1>锦程 ERP · 调拨单</h1>
+          <p className="print-meta">
+            单号：{detail.code} · 状态：{STATUS_LABELS[detail.status] ?? detail.status}{" "}
+            · 打印时间：{new Date().toLocaleString("zh-CN", { hour12: false })}
+          </p>
+          <p className="print-meta">
+            调出仓库：{detail.fromWarehouse.name} → 调入仓库：
+            {detail.toWarehouse.name} ·
+            共 {detail.lines.length} 台 · 制单人：{detail.createdByName ?? "—"}
+            {detail.remark ? ` · 备注：${detail.remark}` : ""}
+          </p>
+          <div className="print-section">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: "36px" }}>序</th>
+                  <th style={{ width: "160px" }}>IMEI / SN</th>
+                  <th>商品</th>
+                  <th style={{ width: "90px" }}>行状态</th>
+                  <th style={{ width: "70px" }}>核对</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detail.lines.map((line, index) => (
+                  <tr key={line.id}>
+                    <td className="print-count">{index + 1}</td>
+                    <td>{line.imeiPrimary}</td>
+                    <td>
+                      {productLabel(line.productBrand, line.productModel)} ·{" "}
+                      {line.skuName}
+                    </td>
+                    <td>{LINE_STATUS_LABELS[line.status] ?? line.status}</td>
+                    <td />
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="print-sign-row">
+            <span>发出人签字：__________</span>
+            <span>承运人签字：__________</span>
+            <span>接收人签字：__________</span>
+            <span>日期：__________</span>
+          </div>
         </div>
       ) : null}
     </div>

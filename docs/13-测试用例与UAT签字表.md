@@ -39,6 +39,7 @@
 | TC-TRF-002  | 调拨主单聚合判定（单元测试 transfer.service.spec） | 部分接收→PARTIALLY_RECEIVED；全收→RECEIVED；在途清零且有差异→EXCEPTION | AC-F-008~009           |
 | TC-TRF-003  | 调拨接口鉴权与非法转换（单元测试 transfer.controller.spec + 实测） | 读需 transfer:read、命令需 transfer:write；跳步操作返回 422；并发重复命令仅一次成功（409） | AC-F-002、008          |
 | TC-TRF-004  | 完整握手流程（2026-08-12 实测通过）          | 建单→提交→审批→锁库→发出→部分接收→补收→完成八步状态正确；序列号锁定/在途/落位调入仓；TRANSFER_OUT/IN 流水一机各一条 | AC-F-008~009           |
+| TC-TRF-005  | 解锁退回与已审批撤单（2026-08-13 实测通过）  | 锁库后解锁：单据回 APPROVED、明细回 PENDING、序列号恢复 NORMAL；已审批单可撤销 → CANCELLED；撤销后同一设备可再次发起调拨（无残留占用） | AC-F-008~009           |
 | TC-PUR-001  | 采购10、付款10、收货8                        | 显示未到2及对应金额                                  | AC-F-010~011           |
 | TC-PUR-002  | 采购聚合纯函数（单元测试 procurement.service.spec） | 付款三态边界（0/部分/刚好/超过）；收货聚合（未收/部分/全收/空明细）；PUR/RCP 单号格式 | AC-F-010~011           |
 | TC-PUR-003  | 采购接口鉴权装配（单元测试 procurement.controller.spec） | 类级 JwtAuthGuard；读需 procurement:read、命令需 procurement:write | AC-F-002、010          |

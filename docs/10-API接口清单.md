@@ -86,7 +86,8 @@
 | API-TRF-009 | `POST /transfers/{id}/receive`    | 扫码接收（支持部分）：序列号落位调入仓 + TRANSFER_IN 流水；主单按明细聚合 | VERIFY   |
 | API-TRF-010 | `POST /transfers/{id}/exceptions` | 差异登记（少货/错货/损坏/拒收/超时）：设备转 ABNORMAL 待差异闭环 | VERIFY   |
 | API-TRF-011 | `POST /transfers/{id}/complete`   | 对账完成：RECEIVED → COMPLETED                               | VERIFY   |
-| API-TRF-012 | `POST /transfers/{id}/cancel`     | 取消/撤回：DRAFT/SUBMITTED → CANCELLED（锁库后不可取消）     | VERIFY   |
+| API-TRF-012 | `POST /transfers/{id}/cancel`     | 取消/撤回：DRAFT/SUBMITTED/APPROVED → CANCELLED（锁库后需先解锁退回，2026-08-13 扩展） | VERIFY   |
+| API-TRF-013 | `POST /transfers/{id}/unlock`     | 解锁退回：LOCKED → APPROVED；序列号 LOCKED → NORMAL 计数校验，明细行回 PENDING（2026-08-13 新增） | VERIFY   |
 
 调拨读接口需 `transfer:read`，全部命令需 `transfer:write`；每次状态转换 `updateMany + 前置状态条件` 原子执行（并发重复提交仅一次成功），同事务写审计（含前后状态与 request_id）。**待签字项**：审批金额/数量分级（docs/04 C.3，当前 `transfer:write` 即可审批）、差异闭环单据（EXCEPTION 后的报损/找回流程）、超时 SLA。数量商品调拨待数量库存模型上线后扩展。
 
