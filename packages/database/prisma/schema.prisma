@@ -152,6 +152,7 @@ model Organization {
   stores    Store[]
   employees Employee[]
   products  Product[]
+  customers Customer[]
   createdAt DateTime   @default(now()) @db.Timestamptz(3)
   updatedAt DateTime   @updatedAt @db.Timestamptz(3)
 }
@@ -164,6 +165,7 @@ model Store {
   organization   Organization @relation(fields: [organizationId], references: [id])
   employees      Employee[]
   warehouses     Warehouse[]
+  customers      Customer[]
   createdAt      DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
 
@@ -182,6 +184,7 @@ model Employee {
   store              Store?         @relation(fields: [storeId], references: [id])
   account            UserAccount?
   responsibleSerials SerialItem[]
+  ownedCustomers     Customer[]
   createdAt          DateTime       @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime       @updatedAt @db.Timestamptz(3)
 
@@ -701,4 +704,87 @@ model PurchaseReceiptItem {
   @@index([receiptId])
   @@index([purchaseLineId])
   @@index([serialId])
+}
+
+/// 回访结果枚举(REQ-PEOPLE-010,2026-08-13 已确认的 8 个标准值)
+enum FollowupResult {
+  NO_DEMAND
+  INTERESTED
+  PENDING_QUOTE
+  PENDING_VISIT
+  DEAL_DONE
+  REFUSED_CONTACT
+  INVALID_NUMBER
+  FOLLOW_UP_LATER
+}
+
+/// 客户主档(AC-F-015):customer_id 全局唯一,手机号不作主键(docs/07 第 30-31 行)。
+/// 去重规则待业务签字——phone 不加硬唯一约束(重复客户需可识别后受控合并),
+/// 创建时同手机号返回 409 提示,显式 allowDuplicate 才放行;合并单据(customer_merge_log)待规则签字后建。
+/// archivedAt 非空 = 已作废(不物理删除,AGENTS 第 4 条)。
+model Customer {
+  id              String             @id @default(uuid()) @db.Uuid
+  organizationId  String             @db.Uuid
+  name            String
+  phone           String?
+  /// 来源渠道:枚举待业务确认,先存自由文本(如 门店自然到店/短视频/老客介绍)
+  sourceChannel   String?
+  /// 归属门店/归属销售(docs/11 数据范围 SELF/STORE 维度的基础)
+  ownerStoreId    String?            @db.Uuid
+  ownerEmployeeId String?            @db.Uuid
+  remark          String?
+  createdById     String             @db.Uuid
+  archivedAt      DateTime?          @db.Timestamptz(3)
+  organization    Organization       @relation(fields: [organizationId], references: [id])
+  ownerStore      Store?             @relation(fields: [ownerStoreId], references: [id])
+  ownerEmployee   Employee?          @relation(fields: [ownerEmployeeId], references: [id])
+  identities      CustomerIdentity[]
+  followups       FollowupRecord[]
+  createdAt       DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @db.Timestamptz(3)
+
+  @@index([organizationId, phone])
+  @@index([organizationId, name])
+  @@index([ownerEmployeeId])
+}
+
+/// 客户外部身份映射(REQ-CRM-001,与 SkuExternalIdentity 同构,AGENTS 第 6 条:
+/// 保留原始 ID/载荷/同步批次)。企微/小程序会员接入 BLOCKED 于平台权限,
+/// 本表先支撑管家婆等历史客户导入。
+model CustomerIdentity {
+  id            String   @id @default(uuid()) @db.Uuid
+  customerId    String   @db.Uuid
+  sourceSystem  String
+  sourceId      String
+  sourcePayload Json?
+  syncBatchId   String?
+  customer      Customer @relation(fields: [customerId], references: [id])
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([sourceSystem, sourceId])
+  @@index([customerId, sourceSystem])
+}
+
+/// 回访记录(AC-F-016/REQ-PEOPLE-009~012):必须实名到客户与员工;
+/// 同日同人同客多次记录全部保留,「有效回访人数」统计口径去重计 1(查询层处理,不丢日志);
+/// nextFollowupAt 到期且其后无新回访 → 进入我的待办。
+/// method(电话/微信/到店)枚举未终裁,先存自由文本。
+model FollowupRecord {
+  id             String         @id @default(uuid()) @db.Uuid
+  customerId     String         @db.Uuid
+  createdById    String         @db.Uuid
+  method         String?
+  result         FollowupResult
+  note           String?
+  /// 结果=有意向时建议填写:意向商品与预计购买时间(REQ-PEOPLE-010)
+  intentProduct  String?
+  expectedBuyAt  DateTime?      @db.Timestamptz(3)
+  nextFollowupAt DateTime?      @db.Timestamptz(3)
+  occurredAt     DateTime       @default(now()) @db.Timestamptz(3)
+  customer       Customer       @relation(fields: [customerId], references: [id])
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+
+  @@index([customerId, occurredAt])
+  @@index([nextFollowupAt])
 }

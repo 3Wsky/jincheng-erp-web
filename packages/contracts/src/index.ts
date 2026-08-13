@@ -904,3 +904,94 @@ export type PurchaseOrderLine = z.infer<typeof PurchaseOrderLineSchema>;
 export type PurchasePaymentRecord = z.infer<typeof PurchasePaymentRecordSchema>;
 export type PurchaseReceiptRecord = z.infer<typeof PurchaseReceiptRecordSchema>;
 export type PurchaseOrderDetail = z.infer<typeof PurchaseOrderDetailSchema>;
+
+// ---- 客户管理(AC-F-015/016;手机号一律脱敏返回,明文可见权限待 Field 维度签字) ----
+
+/** 回访结果(REQ-PEOPLE-010 的 8 个标准值) */
+export const FollowupResultSchema = z.enum([
+  "NO_DEMAND",
+  "INTERESTED",
+  "PENDING_QUOTE",
+  "PENDING_VISIT",
+  "DEAL_DONE",
+  "REFUSED_CONTACT",
+  "INVALID_NUMBER",
+  "FOLLOW_UP_LATER",
+]);
+
+export const CustomerListItemSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  /** 服务端已脱敏(138****5678),前端不接触明文 */
+  phoneMasked: z.string().nullable(),
+  sourceChannel: z.string().nullable(),
+  ownerStoreName: z.string().nullable(),
+  ownerEmployeeName: z.string().nullable(),
+  remark: z.string().nullable(),
+  archivedAt: z.iso.datetime().nullable(),
+  lastFollowupAt: z.iso.datetime().nullable(),
+  nextFollowupAt: z.iso.datetime().nullable(),
+  followupCount: z.number().int().nonnegative(),
+  createdAt: z.iso.datetime(),
+});
+
+export const CustomerListSchema = z.object({
+  items: z.array(CustomerListItemSchema),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+});
+
+export const FollowupRecordItemSchema = z.object({
+  id: z.uuid(),
+  method: z.string().nullable(),
+  result: FollowupResultSchema,
+  note: z.string().nullable(),
+  intentProduct: z.string().nullable(),
+  expectedBuyAt: z.iso.datetime().nullable(),
+  nextFollowupAt: z.iso.datetime().nullable(),
+  occurredAt: z.iso.datetime(),
+  createdByName: z.string().nullable(),
+});
+
+export const CustomerIdentityItemSchema = z.object({
+  id: z.uuid(),
+  sourceSystem: z.string(),
+  sourceId: z.string(),
+  createdAt: z.iso.datetime(),
+});
+
+export const CustomerDetailSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  phoneMasked: z.string().nullable(),
+  sourceChannel: z.string().nullable(),
+  ownerStoreId: z.uuid().nullable(),
+  ownerStoreName: z.string().nullable(),
+  ownerEmployeeId: z.uuid().nullable(),
+  ownerEmployeeName: z.string().nullable(),
+  remark: z.string().nullable(),
+  archivedAt: z.iso.datetime().nullable(),
+  createdByName: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  identities: z.array(CustomerIdentityItemSchema),
+  followups: z.array(FollowupRecordItemSchema),
+});
+
+/** 创建时同手机号冲突(409)返回的已有客户摘要 */
+export const CustomerDuplicateSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  phoneMasked: z.string().nullable(),
+  ownerEmployeeName: z.string().nullable(),
+});
+
+export type FollowupResultValue = z.infer<typeof FollowupResultSchema>;
+export type CustomerListItem = z.infer<typeof CustomerListItemSchema>;
+export type CustomerList = z.infer<typeof CustomerListSchema>;
+export type FollowupRecordItem = z.infer<typeof FollowupRecordItemSchema>;
+export type CustomerIdentityItem = z.infer<typeof CustomerIdentityItemSchema>;
+export type CustomerDetail = z.infer<typeof CustomerDetailSchema>;
+export type CustomerDuplicate = z.infer<typeof CustomerDuplicateSchema>;

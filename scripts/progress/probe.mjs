@@ -534,6 +534,9 @@ async function checkApiChains() {
   // 我的待办:按权限聚合的跨模块事项汇总
   await authed("待办汇总", "e2e-tasks-summary", `${config.apiBase}/tasks/summary`, (json) => (typeof json?.totalCount === "number" ? `待办 ${json.totalCount} 项 / ${json.groups?.length ?? 0} 组` : null));
 
+  // 客户管理(AC-F-015/016):列表(手机号脱敏)
+  await authed("客户列表", "e2e-crm-list", `${config.apiBase}/customers?pageSize=1`, (json) => (Array.isArray(json?.items) ? `客户 ${json.total} 位(手机号脱敏返回)` : null));
+
   // 审计闭环：本次探测登录必须能在审计日志里查到
   if (token) {
     const audit = await http(`${config.apiBase}/audit/logs?action=auth.login&pageSize=5`, { headers: bearer() });
@@ -654,6 +657,14 @@ async function checkWebChain() {
     id: "web-proxy-stocktakes", name: "BFF 盘点代理", group: "Web",
     status: stocktakeProxy.ok && Array.isArray(stocktakeProxy.json?.items) ? "pass" : "fail",
     detail: stocktakeProxy.error ?? `HTTP ${stocktakeProxy.status}，盘点单 ${stocktakeProxy.json?.total ?? "?"} 张`, ms: stocktakeProxy.ms,
+  });
+
+  // 客户 BFF(/api/customers):客户列表代理(/crm/customers 页面数据链路)
+  const customerProxy = await http(`${config.webBase}/api/customers?pageSize=1`, { headers: cookieHeader });
+  record({
+    id: "web-proxy-customers", name: "BFF 客户代理", group: "Web",
+    status: customerProxy.ok && Array.isArray(customerProxy.json?.items) ? "pass" : "fail",
+    detail: customerProxy.error ?? `HTTP ${customerProxy.status}，客户 ${customerProxy.json?.total ?? "?"} 位`, ms: customerProxy.ms,
   });
 
   // 系统设置 BFF(/api/system):审计日志代理(/system/health 页面数据链路)
@@ -803,6 +814,7 @@ const MODULE_RUNTIME_CHECKS = {
   procurement: ["e2e-procurement-list", "e2e-procurement-detail"],
   stocktake: ["e2e-stocktake-list", "e2e-stocktake-detail"],
   tasks: ["e2e-tasks-summary"],
+  crm: ["e2e-crm-list"],
   audit: ["e2e-audit-login", "e2e-audit-query", "e2e-outbox"],
 };
 

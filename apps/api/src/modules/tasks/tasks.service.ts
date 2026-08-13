@@ -22,6 +22,11 @@ export interface TaskGroup {
 /** 每组最多返回的明细条数(数量以 count 为准) */
 const ITEMS_PER_GROUP = 5;
 
+/** 到期日期短格式(待办标题用) */
+function formatDueDate(at: Date): string {
+  return `${at.getMonth() + 1}/${at.getDate()}`;
+}
+
 /**
  * 我的待办:不建独立任务表,由业务单据状态实时推导——
  * 单据即事实,避免任务与单据状态失同步(审批流单据化待审批矩阵签字后再评估)。
@@ -127,6 +132,25 @@ export class TasksService {
       }
     }
 
+    // ---- 到期回访(customer:read 可见;REQ-PEOPLE-012:next_followup_at 到期自动进待办) ----
+    if (permissions.has("customer:read")) {
+      const dueFollowups = await this.dueFollowups();
+      if (dueFollowups.length > 0) {
+        groups.push({
+          key: "followup-due",
+          label: "客户回访到期",
+          route: "/crm/customers",
+          count: dueFollowups.length,
+          items: dueFollowups.slice(0, ITEMS_PER_GROUP).map((row) => ({
+            id: row.customerId,
+            code: row.customerName,
+            title: `约定 ${formatDueDate(row.nextFollowupAt)} 回访${row.note ? ` · ${row.note}` : ""}`,
+            at: row.nextFollowupAt,
+          })),
+        });
+      }
+    }
+
     // ---- 异常设备(inventory:read 可见,提醒推进报损/找回) ----
     if (permissions.has("inventory:read")) {
       const abnormalCount = await this.database.client.serialItem.count({
@@ -164,6 +188,38 @@ export class TasksService {
   }
 
   // ---------- 内部工具 ----------
+
+  /**
+   * 到期回访:每个客户取最新一条回访记录,其 nextFollowupAt 已到期且之后无新回访
+   * (回访后 nextFollowupAt 由新记录接管,旧提醒自动消失);已作废客户不提醒。
+   */
+  private async dueFollowups() {
+    return this.database.client.$queryRaw<
+      Array<{
+        customerId: string;
+        customerName: string;
+        nextFollowupAt: Date;
+        note: string | null;
+      }>
+    >`
+      SELECT latest."customerId" AS "customerId",
+             c.name              AS "customerName",
+             latest."nextFollowupAt" AS "nextFollowupAt",
+             latest.note         AS note
+      FROM (
+        SELECT DISTINCT ON ("customerId")
+               "customerId", "nextFollowupAt", note, "occurredAt"
+        FROM "FollowupRecord"
+        ORDER BY "customerId", "occurredAt" DESC
+      ) latest
+      JOIN "Customer" c ON c.id = latest."customerId"
+      WHERE latest."nextFollowupAt" IS NOT NULL
+        AND latest."nextFollowupAt" <= NOW()
+        AND c."archivedAt" IS NULL
+      ORDER BY latest."nextFollowupAt" ASC
+      LIMIT 200
+    `;
+  }
 
   /** 调拨分组查询(单状态) */
   private async transferGroup(status: "SUBMITTED" | "APPROVED" | "LOCKED") {

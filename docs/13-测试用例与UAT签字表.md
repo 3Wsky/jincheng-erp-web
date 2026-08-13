@@ -40,6 +40,9 @@
 | TC-TRF-003  | 调拨接口鉴权与非法转换（单元测试 transfer.controller.spec + 实测） | 读需 transfer:read、命令需 transfer:write；跳步操作返回 422；并发重复命令仅一次成功（409） | AC-F-002、008          |
 | TC-TRF-004  | 完整握手流程（2026-08-12 实测通过）          | 建单→提交→审批→锁库→发出→部分接收→补收→完成八步状态正确；序列号锁定/在途/落位调入仓；TRANSFER_OUT/IN 流水一机各一条 | AC-F-008~009           |
 | TC-TRF-005  | 解锁退回与已审批撤单（2026-08-13 实测通过）  | 锁库后解锁：单据回 APPROVED、明细回 PENDING、序列号恢复 NORMAL；已审批单可撤销 → CANCELLED；撤销后同一设备可再次发起调拨（无残留占用） | AC-F-008~009           |
+| TC-CRM-001  | 客户接口鉴权装配（单元测试 crm.controller.spec） | 读接口需 customer:read、写接口需 customer:write，类级强制登录 | AC-F-002、015          |
+| TC-CRM-002  | 手机号脱敏纯函数（单元测试 crm.service.spec） | 11 位保留前 3 后 4；7~10 位保留前 2 后 2；更短全掩码；空值返回 null | AC-F-002               |
+| TC-CRM-003  | 客户建档/重复识别/回访/待办闭环（2026-08-13 实测通过） | 建档手机号脱敏正确；同手机号 409 + 已有客户摘要；allowDuplicate 受控放行；回访（有意向+意向商品）写入时间线；下次回访到期出现在「我的待办」，补回访后提醒消失；手机号尾号搜索命中；作废软删且拒绝再回访（422） | AC-F-015~016           |
 | TC-PUR-001  | 采购10、付款10、收货8                        | 显示未到2及对应金额                                  | AC-F-010~011           |
 | TC-PUR-002  | 采购聚合纯函数（单元测试 procurement.service.spec） | 付款三态边界（0/部分/刚好/超过）；收货聚合（未收/部分/全收/空明细）；PUR/RCP 单号格式 | AC-F-010~011           |
 | TC-PUR-003  | 采购接口鉴权装配（单元测试 procurement.controller.spec） | 类级 JwtAuthGuard；读需 procurement:read、命令需 procurement:write | AC-F-002、010          |

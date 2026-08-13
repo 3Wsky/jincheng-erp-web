@@ -4,6 +4,7 @@ import { DatabaseModule } from "./database/database.module.js";
 import { AuditModule } from "./modules/audit/audit.module.js";
 import { AuthModule } from "./modules/auth/auth.module.js";
 import { CatalogModule } from "./modules/catalog/catalog.module.js";
+import { CrmModule } from "./modules/crm/crm.module.js";
 import { HealthController } from "./modules/health/health.controller.js";
 import { InventoryModule } from "./modules/inventory/inventory.module.js";
 import { OrganizationModule } from "./modules/organization/organization.module.js";
@@ -22,6 +23,7 @@ import { TransferModule } from "./modules/transfer/transfer.module.js";
     AuditModule,
     AuthModule,
     CatalogModule,
+    CrmModule,
     OrganizationModule,
     InventoryModule,
     ProcurementModule,

@@ -55,7 +55,7 @@ export const navigationGroups: NavigationGroup[] = [
   {
     label: "客户与经营",
     items: [
-      { label: "客户管理", href: "/crm/customers", icon: "crm", status: "planned" },
+      { label: "客户管理", href: "/crm/customers", icon: "crm", badge: "可用", status: "ready" },
       { label: "财务中心", href: "/finance/ledger", icon: "finance", status: "blocked" },
       { label: "经营报表", href: "/reports/daily", icon: "reports", status: "planned" },
       { label: "老板驾驶舱", href: "/reports/executive", icon: "executive", status: "planned" },
@@ -126,19 +126,8 @@ export const modulePages: Record<string, ModulePageDefinition> = {
     ],
     milestones: ["确认销售单唯一来源", "确认扣库存时点", "确认收款和退换流程"],
   },
-  "/crm/customers": {
-    eyebrow: "客户中心",
-    title: "客户管理",
-    description: "建立统一客户档案，承接购买历史、员工归属、回访与私域运营。",
-    status: "规划中",
-    statusTone: "neutral",
-    capabilities: [
-      { title: "统一客户", description: "受控合并手机号、会员与外部平台身份。" },
-      { title: "跟进时间线", description: "记录销售、回访、任务和下次提醒。" },
-      { title: "隐私保护", description: "手机号按角色脱敏，导出使用独立权限。" },
-    ],
-    milestones: ["确认客户去重规则", "确认归属规则", "确认企微授权范围"],
-  },
+  // /crm/customers 已由真实页面实现（apps/web/src/app/crm/customers），不再使用占位页。
+  // 客户合并(customer-merges)待去重规则签字后实现;企微/会员身份映射 BLOCKED 于平台权限。
   "/finance/ledger": {
     eyebrow: "财务中心",
     title: "业务资金",

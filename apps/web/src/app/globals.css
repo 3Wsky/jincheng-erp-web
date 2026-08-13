@@ -3149,6 +3149,197 @@ code {
   background: #fafbfc;
 }
 
+/* ---- 客户管理(AC-F-015/016) ---- */
+
+.customers-manager {
+  display: grid;
+  gap: 16px;
+}
+
+.customer-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 18px;
+}
+
+.customer-search {
+  flex: 1;
+  max-width: 420px;
+}
+
+.customer-create {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.customer-create h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.customer-create-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.customer-create-grid label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.customer-create-remark {
+  grid-column: 1 / -1;
+}
+
+.customer-create > .button {
+  justify-self: start;
+}
+
+/* 重复识别提示(409):展示已有客户摘要 + 受控放行入口 */
+.customer-duplicate {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.customer-duplicate-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.customer-table tbody tr {
+  cursor: pointer;
+}
+
+.customer-table tbody tr:hover td {
+  background: #f8fafc;
+}
+
+.customer-table .status-badge {
+  margin-left: 6px;
+}
+
+.customer-archived td {
+  color: var(--muted);
+}
+
+.customer-due {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.customer-next {
+  color: var(--ink-soft);
+}
+
+.customer-drawer {
+  max-width: 560px;
+}
+
+.customer-meta {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 18px;
+  margin: 14px 22px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fafbfc;
+}
+
+.customer-meta div {
+  display: grid;
+  gap: 2px;
+}
+
+.customer-meta-wide {
+  grid-column: 1 / -1;
+}
+
+.customer-meta dt {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.customer-meta dd {
+  margin: 0;
+  font-size: 13px;
+}
+
+.customer-followup-form {
+  display: grid;
+  gap: 10px;
+}
+
+.customer-followup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin: 0 22px;
+}
+
+.customer-followup-grid label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.customer-followup-note {
+  grid-column: 1 / -1;
+}
+
+.customer-followup-actions {
+  display: flex;
+  gap: 10px;
+  margin: 0 22px;
+}
+
+/* 回访时间线:最近在上,结果徽章 + 操作人 + 下次提醒 */
+.customer-timeline {
+  display: grid;
+  gap: 12px;
+  margin: 10px 22px 20px;
+  padding: 0;
+  list-style: none;
+}
+
+.customer-timeline li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.customer-timeline-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.customer-timeline-head small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.customer-timeline p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.customer-timeline small {
+  font-size: 11px;
+}
+
 /* 接收扫码框:扫码枪/手工输入串号自动勾选在途明细 */
 .transfer-scan-box {
   display: flex;

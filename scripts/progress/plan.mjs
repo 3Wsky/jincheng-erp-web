@@ -41,6 +41,9 @@ export const DB_TABLES = [
   "StocktakeOrder",
   "StocktakeScan",
   "StocktakeDifference",
+  "Customer",
+  "CustomerIdentity",
+  "FollowupRecord",
   "AuditLog",
   "OutboxEvent",
 ];
@@ -119,6 +122,12 @@ export const PLANNED_APIS = [
   { id: "API-STK-009", method: "POST", path: "/stocktakes/{id}/post", module: "stocktake" },
   { id: "API-STK-010", method: "POST", path: "/stocktakes/{id}/cancel", module: "stocktake" },
   { id: "API-TASK-001", method: "GET", path: "/tasks/summary", module: "tasks" },
+  { id: "API-CRM-001", method: "GET", path: "/customers", module: "crm" },
+  { id: "API-CRM-002", method: "POST", path: "/customers", module: "crm" },
+  { id: "API-CRM-003", method: "GET", path: "/customers/{id}", module: "crm" },
+  { id: "API-CRM-004", method: "PATCH", path: "/customers/{id}", module: "crm" },
+  { id: "API-CRM-005", method: "POST", path: "/customers/{id}/archive", module: "crm" },
+  { id: "API-CRM-006", method: "POST", path: "/customers/{id}/followups", module: "crm" },
   { id: "API-SYS-001", method: "GET", path: "/health", module: "system" },
   { id: "API-SYS-002", method: "GET", path: "/audit/logs", module: "audit" },
   { id: "API-SYS-003", method: "GET", path: "/audit/outbox/pending", module: "audit" },
@@ -131,7 +140,8 @@ export const PLANNED_APIS = [
 export const FUTURE_MODULES = [
   // 全局查货(API-INV-003/004)、调拨(API-TRF-001~012)、采购(API-PUR-001~013)、盘点(API-STK-001~010)均已实现,进入 PLANNED_APIS
   { id: "sales", name: "销售管理", apiRange: "API-SAL-001~030", plannedCount: 30, prefixes: ["/sales-orders", "/sales-returns", "/sales"], phase: "阶段3", blocked: true, blockedReason: "销售单来源与毛利口径未签字（docs/04）" },
-  { id: "crm", name: "客户管理", apiRange: "API-CRM-001~020", plannedCount: 20, prefixes: ["/customers", "/customer-merges", "/crm"], phase: "阶段3~4", blocked: false },
+  // 客户主档+回访已实现(API-CRM-001~006);合并(customer-merges)待去重规则签字,企微/会员映射 BLOCKED 于平台权限
+  { id: "crm-merge", name: "客户合并", apiRange: "API-CRM-007~020", plannedCount: 14, prefixes: ["/customer-merges"], phase: "阶段3~4", blocked: true, blockedReason: "客户去重与合并规则待签字（docs/15）" },
   // 待办聚合已实现(API-TASK-001);审批流单据化(approvals)待审批矩阵签字
   { id: "approvals", name: "审批流单据", apiRange: "API-TASK-002~010", plannedCount: 9, prefixes: ["/approvals"], phase: "阶段2~4", blocked: false },
   { id: "finance", name: "财务中心", apiRange: "API-SAL/PUR 资金部分", plannedCount: 12, prefixes: ["/finance", "/payments", "/ledger"], phase: "阶段4", blocked: true, blockedReason: "收款确认与支付方式未确认（docs/04）" },
