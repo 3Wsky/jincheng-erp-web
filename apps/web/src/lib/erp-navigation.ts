@@ -38,7 +38,7 @@ export const navigationGroups: NavigationGroup[] = [
     items: [
       { label: "经营工作台", href: "/", icon: "dashboard", status: "ready" },
       { label: "全局查货", href: "/search", icon: "search", badge: "可用", status: "ready" },
-      { label: "我的待办", href: "/tasks", icon: "task", status: "planned" },
+      { label: "我的待办", href: "/tasks", icon: "task", badge: "可用", status: "ready" },
     ],
   },
   {
@@ -84,19 +84,7 @@ export interface ModulePageDefinition {
 
 export const modulePages: Record<string, ModulePageDefinition> = {
   // /search 已由真实页面实现（apps/web/src/app/search），不再使用占位页。
-  "/tasks": {
-    eyebrow: "协同中心",
-    title: "我的待办",
-    description: "集中处理采购审批、调拨接收、盘点差异、回访和异常任务。",
-    status: "规划中",
-    statusTone: "neutral",
-    capabilities: [
-      { title: "统一待办", description: "跨业务模块聚合个人需要处理的事项。" },
-      { title: "审批分级", description: "按金额、数量和角色进入不同审批链。" },
-      { title: "超时提醒", description: "提供到期、催办、转交与处理记录。" },
-    ],
-    milestones: ["确认审批矩阵", "建立任务模型", "接入消息中心"],
-  },
+  // /tasks 已由真实页面实现（apps/web/src/app/tasks），不再使用占位页。
   "/notifications": {
     eyebrow: "消息中心",
     title: "消息与异常",

@@ -710,6 +710,32 @@ export const StocktakeScanResultSchema = z.object({
   duplicated: z.number().int().nonnegative(),
 });
 
+// ---- 我的待办(业务单据状态实时推导,按用户权限过滤) ----
+
+export const TaskItemSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  title: z.string(),
+  at: z.iso.datetime(),
+});
+
+export const TaskGroupSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  route: z.string(),
+  count: z.number().int().nonnegative(),
+  items: z.array(TaskItemSchema),
+});
+
+export const TaskSummarySchema = z.object({
+  totalCount: z.number().int().nonnegative(),
+  groups: z.array(TaskGroupSchema),
+});
+
+export type TaskItem = z.infer<typeof TaskItemSchema>;
+export type TaskGroup = z.infer<typeof TaskGroupSchema>;
+export type TaskSummary = z.infer<typeof TaskSummarySchema>;
+
 export type StocktakeStatusValue = z.infer<typeof StocktakeStatusSchema>;
 export type StocktakeDifferenceTypeValue = z.infer<
   typeof StocktakeDifferenceTypeSchema

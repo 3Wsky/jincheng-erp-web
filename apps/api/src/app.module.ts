@@ -9,6 +9,7 @@ import { InventoryModule } from "./modules/inventory/inventory.module.js";
 import { OrganizationModule } from "./modules/organization/organization.module.js";
 import { ProcurementModule } from "./modules/procurement/procurement.module.js";
 import { StocktakeModule } from "./modules/stocktake/stocktake.module.js";
+import { TasksModule } from "./modules/tasks/tasks.module.js";
 import { TransferModule } from "./modules/transfer/transfer.module.js";
 
 @Module({
@@ -25,6 +26,7 @@ import { TransferModule } from "./modules/transfer/transfer.module.js";
     InventoryModule,
     ProcurementModule,
     StocktakeModule,
+    TasksModule,
     TransferModule,
   ],
   controllers: [HealthController],

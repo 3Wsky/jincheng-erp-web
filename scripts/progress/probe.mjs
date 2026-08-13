@@ -531,6 +531,9 @@ async function checkApiChains() {
     record({ id: "e2e-stocktake-detail", name: "盘点单详情", group: "业务链路", status: "skip", detail: "暂无盘点单,跳过" });
   }
 
+  // 我的待办:按权限聚合的跨模块事项汇总
+  await authed("待办汇总", "e2e-tasks-summary", `${config.apiBase}/tasks/summary`, (json) => (typeof json?.totalCount === "number" ? `待办 ${json.totalCount} 项 / ${json.groups?.length ?? 0} 组` : null));
+
   // 审计闭环：本次探测登录必须能在审计日志里查到
   if (token) {
     const audit = await http(`${config.apiBase}/audit/logs?action=auth.login&pageSize=5`, { headers: bearer() });
@@ -799,6 +802,7 @@ const MODULE_RUNTIME_CHECKS = {
   transfer: ["e2e-transfer-list", "e2e-transfer-detail"],
   procurement: ["e2e-procurement-list", "e2e-procurement-detail"],
   stocktake: ["e2e-stocktake-list", "e2e-stocktake-detail"],
+  tasks: ["e2e-tasks-summary"],
   audit: ["e2e-audit-login", "e2e-audit-query", "e2e-outbox"],
 };
 
