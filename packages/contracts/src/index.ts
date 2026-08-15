@@ -183,6 +183,14 @@ export const OrganizationSchema = z.object({
   updatedAt: z.iso.datetime(),
 });
 
+export const WarehouseTypeSchema = z.enum([
+  "COMPANY",
+  "STORE",
+  "PERSONAL",
+  "AFTER_SALES",
+  "ABNORMAL",
+]);
+
 export const StoreSchema = z.object({
   id: z.uuid(),
   organizationId: z.uuid(),
@@ -190,6 +198,26 @@ export const StoreSchema = z.object({
   name: z.string(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
+});
+
+/** 组织页地点清单中的仓库(含个人仓),按 type 分组展示 */
+export const OrgWarehouseSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  name: z.string(),
+  type: WarehouseTypeSchema,
+  storeId: z.uuid().nullable(),
+  storeName: z.string().nullable(),
+  ownerEmployeeId: z.uuid().nullable(),
+  ownerEmployeeName: z.string().nullable(),
+  serialCount: z.number().int().nonnegative(),
+});
+
+export const EmployeeOwnedWarehouseSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  name: z.string(),
+  type: WarehouseTypeSchema,
 });
 
 export const EmployeeSchema = z.object({
@@ -200,11 +228,15 @@ export const EmployeeSchema = z.object({
   name: z.string(),
   mobile: z.string().nullable(),
   status: EmployeeStatusSchema,
+  /** 已挂到该员工的仓库(个人仓 ownerEmployeeId + 销售角色 scopeConfig) */
+  ownedWarehouses: z.array(EmployeeOwnedWarehouseSchema),
   account: z
     .object({
       id: z.uuid(),
       username: z.string(),
       isFrozen: z.boolean(),
+      roleIds: z.array(z.uuid()),
+      warehouseIds: z.array(z.uuid()),
     })
     .nullable(),
   createdAt: z.iso.datetime(),
@@ -218,6 +250,11 @@ export const OrganizationListSchema = z.object({
 
 export const StoreListSchema = z.object({
   items: z.array(StoreSchema),
+  total: z.number().int().nonnegative(),
+});
+
+export const OrgWarehouseListSchema = z.object({
+  items: z.array(OrgWarehouseSchema),
   total: z.number().int().nonnegative(),
 });
 
@@ -273,6 +310,10 @@ export const CreateAccountSchema = z.object({
     .regex(/^[a-zA-Z0-9_.-]+$/, "账号只能包含字母、数字、下划线、点和短横线"),
   password: z.string().min(8).max(100),
   roleIds: z.array(z.uuid()).min(1).max(20),
+  /** 销售角色必填:所属门店 */
+  storeId: z.uuid().optional(),
+  /** 销售角色必填:可操作仓库(门店仓和/或个人仓) */
+  warehouseIds: z.array(z.uuid()).max(50).optional(),
 });
 
 export const UpdateAccountSchema = z
@@ -280,6 +321,8 @@ export const UpdateAccountSchema = z
     isFrozen: z.boolean().optional(),
     password: z.string().min(8).max(100).optional(),
     roleIds: z.array(z.uuid()).min(1).max(20).optional(),
+    storeId: z.uuid().nullable().optional(),
+    warehouseIds: z.array(z.uuid()).max(50).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, "至少提供一个待修改字段");
 
@@ -308,6 +351,23 @@ export const RoleListSchema = z.object({
   total: z.number().int().nonnegative(),
 });
 
+/** 角色持有账号(管理台核对谁有该权限) */
+export const RoleAccountSchema = z.object({
+  accountId: z.uuid(),
+  username: z.string(),
+  isFrozen: z.boolean(),
+  dataScope: z.string(),
+  employeeId: z.uuid(),
+  employeeName: z.string(),
+  employeeNo: z.string(),
+  storeName: z.string().nullable(),
+});
+
+export const RoleAccountListSchema = z.object({
+  items: z.array(RoleAccountSchema),
+  total: z.number().int().nonnegative(),
+});
+
 export const PermissionListSchema = z.object({
   items: z.array(PermissionSchema),
   total: z.number().int().nonnegative(),
@@ -315,9 +375,11 @@ export const PermissionListSchema = z.object({
 
 export type Organization = z.infer<typeof OrganizationSchema>;
 export type Store = z.infer<typeof StoreSchema>;
+export type OrgWarehouse = z.infer<typeof OrgWarehouseSchema>;
 export type Employee = z.infer<typeof EmployeeSchema>;
 export type OrganizationList = z.infer<typeof OrganizationListSchema>;
 export type StoreList = z.infer<typeof StoreListSchema>;
+export type OrgWarehouseList = z.infer<typeof OrgWarehouseListSchema>;
 export type EmployeeList = z.infer<typeof EmployeeListSchema>;
 export type CreateOrganization = z.input<typeof CreateOrganizationSchema>;
 export type UpdateOrganization = z.input<typeof UpdateOrganizationSchema>;
@@ -330,16 +392,10 @@ export type Role = z.infer<typeof RoleSchema>;
 export type Permission = z.infer<typeof PermissionSchema>;
 export type RoleList = z.infer<typeof RoleListSchema>;
 export type PermissionList = z.infer<typeof PermissionListSchema>;
+export type RoleAccount = z.infer<typeof RoleAccountSchema>;
+export type RoleAccountList = z.infer<typeof RoleAccountListSchema>;
 
 // ---- 库存总览 ----
-
-export const WarehouseTypeSchema = z.enum([
-  "COMPANY",
-  "STORE",
-  "PERSONAL",
-  "AFTER_SALES",
-  "ABNORMAL",
-]);
 
 export const WarehouseOverviewItemSchema = z.object({
   id: z.uuid(),

@@ -162,6 +162,18 @@ export class CreateAccountDto {
   @ArrayMaxSize(20)
   @IsUUID("all", { each: true })
   roleIds!: string[];
+
+  /** 销售角色必填:所属门店 */
+  @IsOptional()
+  @IsUUID()
+  storeId?: string;
+
+  /** 销售角色必填:可操作仓库 */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsUUID("all", { each: true })
+  warehouseIds?: string[];
 }
 
 export class UpdateAccountDto {
@@ -181,6 +193,16 @@ export class UpdateAccountDto {
   @ArrayMaxSize(20)
   @IsUUID("all", { each: true })
   roleIds?: string[];
+
+  @IsOptional()
+  @IsUUID()
+  storeId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsUUID("all", { each: true })
+  warehouseIds?: string[];
 }
 
 /** 创建自定义角色(内置角色由 seed 权威管理,不走本接口) */

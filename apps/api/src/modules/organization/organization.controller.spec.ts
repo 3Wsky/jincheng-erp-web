@@ -33,13 +33,23 @@ function permissionCodes(guards: unknown[]): string[] {
     .flatMap((guard) => (guard as unknown as { required: string[] }).required);
 }
 
-const ROLE_READ_METHODS = ["listRoles", "listPermissions"];
+const ROLE_READ_METHODS = ["listRoles", "listPermissions", "listRoleAccounts"];
+const ORG_READ_METHODS = [
+  "listOrganizations",
+  "listStores",
+  "listWarehouses",
+  "listEmployees",
+];
 const ROLE_WRITE_METHODS = ["createRole", "updateRole", "archiveRole", "restoreRole"];
 const ACCOUNT_WRITE_METHODS = ["createAccount", "updateAccount"];
 
 describe("OrganizationController 鉴权装配", () => {
   it("类级启用 JwtAuthGuard,所有接口要求登录", () => {
     expect(classGuards()).toContain(JwtAuthGuard);
+  });
+
+  it.each(ORG_READ_METHODS)("组织读接口 %s 要求 organization:read", (method) => {
+    expect(permissionCodes(methodGuards(method))).toContain("organization:read");
   });
 
   it.each(ROLE_READ_METHODS)("角色读接口 %s 要求 role:read", (method) => {

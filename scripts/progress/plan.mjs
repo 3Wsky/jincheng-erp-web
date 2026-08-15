@@ -75,6 +75,8 @@ export const PLANNED_APIS = [
   { id: "API-ORG-016", method: "PATCH", path: "/roles/{id}", module: "organization" },
   { id: "API-ORG-017", method: "POST", path: "/roles/{id}/archive", module: "organization" },
   { id: "API-ORG-018", method: "POST", path: "/roles/{id}/restore", module: "organization" },
+  { id: "API-ORG-019", method: "GET", path: "/organizations/{organizationId}/warehouses", module: "organization" },
+  { id: "API-ORG-020", method: "GET", path: "/roles/{id}/accounts", module: "organization" },
   { id: "API-CAT-001", method: "GET", path: "/catalog/products", module: "catalog" },
   { id: "API-CAT-002", method: "POST", path: "/catalog/products", module: "catalog" },
   { id: "API-CAT-003", method: "PATCH", path: "/catalog/products/{id}", module: "catalog" },

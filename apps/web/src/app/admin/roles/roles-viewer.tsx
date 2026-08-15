@@ -2,10 +2,12 @@
 
 import {
   PermissionListSchema,
+  RoleAccountListSchema,
   RoleListSchema,
   RoleSchema,
   type Permission,
   type Role,
+  type RoleAccount,
 } from "@jincheng/contracts";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -31,6 +33,92 @@ const ACTION_LABELS: Record<string, string> = {
   write: "写入",
   pay: "付款执行",
 };
+
+/** 每个权限码解锁的具体功能（给管理员看的人话说明） */
+const PERMISSION_INFO: Record<string, string> = {
+  "catalog:read": "查看商品/SKU/条码与官网价",
+  "catalog:write": "建改商品与SKU、应用管家婆导入、同步官网价",
+  "inventory:read": "库存总览、全局查货、单机档案、盘点查看",
+  "inventory:write": "盘点开盘/扫码/审批过账等库存单据",
+  "transfer:read": "查看调拨单与进度",
+  "transfer:write": "调拨建单/审批/锁库/发货/接收/异常处理",
+  "procurement:read": "查看供应商与采购单",
+  "procurement:write": "采购建单/提交/审批/收货登记（管账，不含付款）",
+  "procurement:pay": "采购付款执行（出纳专属，不含单据审批）",
+  "sales:read": "查看销售单（模块待业务确认后上线）",
+  "sales:write": "开销售单/退换（模块待业务确认后上线）",
+  "customer:read": "查看客户与回访记录（手机号脱敏）",
+  "customer:write": "客户建档、回访登记、作废",
+  "finance:read": "查看财务数据（模块待上线）",
+  "finance:write": "财务记账与单据审核（模块待上线）",
+  "report:read": "报表与驾驶舱（待开发）",
+  "organization:read": "查看组织/门店/仓库/员工",
+  "organization:write": "维护组织、门店、员工档案",
+  "account:write": "开通/冻结账号、重置密码、调整角色",
+  "role:read": "查看角色与权限矩阵",
+  "role:write": "创建/配置/停用自定义角色（仅内置系统管理员）",
+  "audit:read": "查看审计日志",
+};
+
+/** 服务端强制执行中的权限边界（每条都有对应校验代码与测试） */
+const BOUNDARY_RULES: Array<{
+  title: string;
+  detail: string;
+  status: "已强制" | "待签字";
+}> = [
+  {
+    title: "内置角色种子权威",
+    detail: "9 个内置角色的权限由种子脚本管理，管理台修改/停用一律 422 拒绝，防误改破坏已确认规则。",
+    status: "已强制",
+  },
+  {
+    title: "权限管理不可外放",
+    detail: "role:write 仅内置系统管理员持有；自定义角色勾选它会被服务端拒绝，权限管理台无法被接管。",
+    status: "已强制",
+  },
+  {
+    title: "钱账分离",
+    detail: "采购单据/审批（procurement:write）与付款执行（procurement:pay）不可同角色、同账号兼有；财务与出纳不可互任（系统管理员为技术兜底除外）。",
+    status: "已强制",
+  },
+  {
+    title: "管理员角色只能管理员授",
+    detail: "人事可开账号、配角色，但把「系统管理员」授予他人需要 role:write，人事操作会被 422 拒绝。",
+    status: "已强制",
+  },
+  {
+    title: "系统保底一个管理员",
+    detail: "冻结最后一个可用管理员账号、或移除其管理员角色的操作会被拒绝，避免无人能进权限管理台。",
+    status: "已强制",
+  },
+  {
+    title: "停用角色即刻失效",
+    detail: "已停用角色不能再分配；已挂账号的角色不能停用；登录守卫逐请求校验，停用后权限立即收回。",
+    status: "已强制",
+  },
+  {
+    title: "销售必须落门店+仓库",
+    detail: "内置「销售」或含 sales:write 的自定义角色开账号时，必须先划分所属门店与仓库（个人仓挂到本人名下）。",
+    status: "已强制",
+  },
+  {
+    title: "数据范围/字段/审批额度",
+    detail: "DataScope 查询过滤、字段脱敏细则（手机号已全员脱敏）、审批额度分级待权限矩阵签字后接入，当前不冒充已完成。",
+    status: "待签字",
+  },
+];
+
+/** 角色的默认数据范围与开账号要求(与后端 sales-assignment 逻辑一致) */
+function roleScopeHint(role: Role): string {
+  if (role.code === "ADMIN" || role.code === "BOSS") return "默认范围：全公司";
+  if (
+    role.code === "SALES" ||
+    (!role.isSystem && role.permissions.includes("sales:write"))
+  ) {
+    return "默认范围：门店 · 开账号须划分门店+仓库";
+  }
+  return "默认范围：个人";
+}
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : "请求失败，请稍后重试";
@@ -91,7 +179,41 @@ export function RolesViewer() {
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const refresh = useCallback(() => setRetryTick((value) => value + 1), []);
+  const [expandedRoleId, setExpandedRoleId] = useState<string | null>(null);
+  const [holdersByRole, setHoldersByRole] = useState<
+    Record<string, RoleAccount[]>
+  >({});
+  const [holdersLoading, setHoldersLoading] = useState(false);
+
+  const refresh = useCallback(() => {
+    setHoldersByRole({});
+    setExpandedRoleId(null);
+    setRetryTick((value) => value + 1);
+  }, []);
+
+  /** 展开角色卡片查看持有账号(懒加载,已加载的直接展示) */
+  const toggleHolders = useCallback(
+    async (role: Role) => {
+      if (expandedRoleId === role.id) {
+        setExpandedRoleId(null);
+        return;
+      }
+      setExpandedRoleId(role.id);
+      if (holdersByRole[role.id]) return;
+      setHoldersLoading(true);
+      try {
+        const raw = await fetchJson(`/api/org/roles/${role.id}/accounts`);
+        const list = RoleAccountListSchema.parse(raw);
+        setHoldersByRole((current) => ({ ...current, [role.id]: list.items }));
+      } catch (loadError) {
+        window.alert(messageOf(loadError));
+        setExpandedRoleId(null);
+      } finally {
+        setHoldersLoading(false);
+      }
+    },
+    [expandedRoleId, holdersByRole],
+  );
 
   /** 并行加载角色/权限/当前用户(判断管理权限) */
   useEffect(() => {
@@ -261,19 +383,39 @@ export function RolesViewer() {
 
   const groups = groupByResource(permissions);
   const activeRoles = roles.filter((role) => !role.archivedAt);
+  // 钱账分离:配权时即时提示,提交前拦截(服务端同样校验)
+  const moneyConflict =
+    formPermissions.has("procurement:write") &&
+    formPermissions.has("procurement:pay");
 
   return (
     <div className="roles-viewer">
-      {/* 权限维度落地说明：未签字维度必须明确标注，不得冒充已完成 */}
+      {/* 权限边界规则：每条"已强制"均有服务端校验与测试兜底；未签字维度明确标注 */}
       <section className="panel roles-notice">
-        <strong>权限维度落地情况</strong>
-        <p>
-          当前系统已落地 <b>Role × Action</b>{" "}
-          两维校验（服务端每个请求逐项鉴权）；
-          <b>DataScope（数据范围）、Field（字段脱敏）、Approval（审批额度）</b>
-          三个维度待权限矩阵签字（docs/11）后接入。内置角色权限由种子脚本权威管理
-          （防误改破坏钱账分离等已确认规则），管理员可创建自定义角色并配置权限。
-        </p>
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">边界规则</p>
+            <h2>权限划分边界（服务端逐请求强制）</h2>
+            <p>
+              以下规则写死在服务端校验里，管理台和接口绕不过去；标注「待签字」的维度不冒充已完成。
+            </p>
+          </div>
+        </div>
+        <div className="boundary-grid">
+          {BOUNDARY_RULES.map((rule) => (
+            <article className="boundary-card" key={rule.title}>
+              <div className="boundary-card-head">
+                <strong>{rule.title}</strong>
+                <span
+                  className={`status-badge ${rule.status === "已强制" ? "status-active" : "status-preview"}`}
+                >
+                  {rule.status}
+                </span>
+              </div>
+              <p>{rule.detail}</p>
+            </article>
+          ))}
+        </div>
       </section>
 
       {/* 角色概览卡片 */}
@@ -310,13 +452,23 @@ export function RolesViewer() {
               </strong>
               <span className="mono">{role.code}</span>
               <small>
-                权限 {role.permissions.length} / {permissions.length} 项 · 账号{" "}
-                {role.accountCount} 个
-                {role.permissions.length === permissions.length ? " · 全部权限" : ""}
+                权限 {role.permissions.length} / {permissions.length} 项
+                {role.permissions.length === permissions.length ? "（全部）" : ""}
               </small>
-              {canWrite && !role.isSystem ? (
-                <div className="role-card-actions">
-                  {role.archivedAt ? (
+              <small className="role-scope-hint">{roleScopeHint(role)}</small>
+              <div className="role-card-actions">
+                <button
+                  className="text-button"
+                  disabled={role.accountCount === 0}
+                  type="button"
+                  onClick={() => void toggleHolders(role)}
+                >
+                  {expandedRoleId === role.id
+                    ? "收起账号"
+                    : `账号 ${role.accountCount} 个`}
+                </button>
+                {canWrite && !role.isSystem ? (
+                  role.archivedAt ? (
                     <button
                       className="button small"
                       disabled={busy}
@@ -334,6 +486,26 @@ export function RolesViewer() {
                     >
                       编辑
                     </button>
+                  )
+                ) : null}
+              </div>
+              {expandedRoleId === role.id ? (
+                <div className="role-holders">
+                  {holdersLoading && !holdersByRole[role.id] ? (
+                    <small>正在加载持有账号…</small>
+                  ) : (
+                    (holdersByRole[role.id] ?? []).map((holder) => (
+                      <div className="role-holder-row" key={holder.accountId}>
+                        <span>
+                          {holder.employeeName}
+                          <small className="mono"> {holder.username}</small>
+                        </span>
+                        <small>
+                          {holder.storeName ?? "未归属门店"}
+                          {holder.isFrozen ? " · 已冻结" : ""}
+                        </small>
+                      </div>
+                    ))
                   )}
                 </div>
               ) : null}
@@ -392,7 +564,7 @@ export function RolesViewer() {
           <div className="role-editor-permissions">
             <h3>权限配置（已选 {formPermissions.size} 项）</h3>
             <p className="role-editor-hint">
-              「role:write」仅内置系统管理员持有，自定义角色不可勾选，防止权限管理被接管。
+              「role:write」仅内置系统管理员持有，自定义角色不可勾选；「采购单据/审批」与「付款执行」受钱账分离约束，不能同时勾选。
             </p>
             {groups.map((group) => (
               <div className="role-editor-group" key={group.resource}>
@@ -412,7 +584,9 @@ export function RolesViewer() {
                       />
                       <span className="mono">{permission.code}</span>
                       <small>
-                        {ACTION_LABELS[permission.action] ?? permission.action}
+                        {PERMISSION_INFO[permission.code] ??
+                          ACTION_LABELS[permission.action] ??
+                          permission.action}
                       </small>
                     </label>
                   ))}
@@ -421,6 +595,11 @@ export function RolesViewer() {
             ))}
           </div>
 
+          {moneyConflict ? (
+            <div className="alert error">
+              钱账分离：「采购单据/审批（procurement:write）」与「付款执行（procurement:pay）」不能配给同一个角色，请去掉其中一项。
+            </div>
+          ) : null}
           {formError ? <div className="alert error">{formError}</div> : null}
 
           <div className="role-editor-actions">
@@ -428,6 +607,7 @@ export function RolesViewer() {
               className="button primary"
               disabled={
                 busy ||
+                moneyConflict ||
                 !formName.trim() ||
                 (editor.mode === "create" && !formCode.trim())
               }
@@ -507,7 +687,11 @@ function RoleMatrixGroup({
         <tr key={permission.id}>
           <td className="matrix-permission-col">
             <span className="mono">{permission.code}</span>
-            <small>{ACTION_LABELS[permission.action] ?? permission.action}</small>
+            <small>
+              {PERMISSION_INFO[permission.code] ??
+                ACTION_LABELS[permission.action] ??
+                permission.action}
+            </small>
           </td>
           {roles.map((role) => {
             const granted = role.permissions.includes(permission.code);

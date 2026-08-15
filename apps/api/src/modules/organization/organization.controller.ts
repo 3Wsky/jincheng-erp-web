@@ -4,6 +4,7 @@ import {
   Get,
   Headers,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -91,6 +92,15 @@ export class OrganizationController {
     return this.organization.listStores(organizationId);
   }
 
+  @Get("organizations/:organizationId/warehouses")
+  @UseGuards(requirePermissions("organization:read"))
+  @ApiOperation({
+    summary: "地点清单：全部仓库（含个人仓），按类型供组织页分组展示",
+  })
+  listWarehouses(@Param("organizationId") organizationId: string) {
+    return this.organization.listWarehouses(organizationId);
+  }
+
   @Post("stores")
   @UseGuards(requirePermissions("organization:write"))
   @ApiOperation({ summary: "创建门店" })
@@ -169,7 +179,9 @@ export class OrganizationController {
 
   @Post("accounts")
   @UseGuards(requirePermissions("account:write"))
-  @ApiOperation({ summary: "为员工开通登录账号并分配角色" })
+  @ApiOperation({
+    summary: "为员工开通登录账号并分配角色；销售岗须同时划分门店和仓库",
+  })
   createAccount(
     @Body() body: CreateAccountDto,
     @Req() request: AuthenticatedRequest,
@@ -180,7 +192,9 @@ export class OrganizationController {
 
   @Patch("accounts/:id")
   @UseGuards(requirePermissions("account:write"))
-  @ApiOperation({ summary: "冻结/解冻账号、重置密码或调整角色" })
+  @ApiOperation({
+    summary: "冻结/解冻、重置密码、调整角色；销售岗可同步划分门店和仓库",
+  })
   updateAccount(
     @Param("id") id: string,
     @Body() body: UpdateAccountDto,
@@ -204,6 +218,13 @@ export class OrganizationController {
   @ApiOperation({ summary: "权限清单" })
   listPermissions() {
     return this.organization.listPermissions();
+  }
+
+  @Get("roles/:id/accounts")
+  @UseGuards(requirePermissions("role:read"))
+  @ApiOperation({ summary: "指定角色的持有账号清单（核对谁有该权限）" })
+  listRoleAccounts(@Param("id", ParseUUIDPipe) id: string) {
+    return this.organization.listRoleAccounts(id);
   }
 
   @Post("roles")

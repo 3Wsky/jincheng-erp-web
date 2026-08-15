@@ -3,10 +3,12 @@
 import {
   EmployeeListSchema,
   OrganizationListSchema,
+  OrgWarehouseListSchema,
   RoleListSchema,
   StoreListSchema,
   type Employee,
   type Organization,
+  type OrgWarehouse,
   type Role,
   type Store,
 } from "@jincheng/contracts";
@@ -28,11 +30,66 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
   INACTIVE: "status-inactive",
 };
 
+const WAREHOUSE_TYPE_TABS: Array<{
+  type: OrgWarehouse["type"];
+  label: string;
+}> = [
+  { type: "STORE", label: "门店仓" },
+  { type: "PERSONAL", label: "个人仓" },
+  { type: "COMPANY", label: "公司总仓" },
+  { type: "AFTER_SALES", label: "售后仓" },
+  { type: "ABNORMAL", label: "异常仓" },
+];
+
+const WAREHOUSE_TYPE_LABEL: Record<OrgWarehouse["type"], string> = {
+  STORE: "门店仓",
+  PERSONAL: "个人仓",
+  COMPANY: "公司总仓",
+  AFTER_SALES: "售后仓",
+  ABNORMAL: "异常仓",
+};
+
+/** 与后端 sales-assignment 一致:销售岗才强制划分门店+仓库 */
+function selectedRolesNeedStoreWarehouse(roles: Role[], roleIds: string[]): boolean {
+  return roles
+    .filter((role) => roleIds.includes(role.id))
+    .some((role) => {
+      if (role.code === "SALES") return true;
+      if (role.code === "ADMIN" || role.code === "BOSS") return false;
+      return role.permissions.includes("sales:write");
+    });
+}
+
+function suggestPersonalWarehouseId(
+  employeeName: string,
+  warehouses: OrgWarehouse[],
+  employeeId: string,
+): string | null {
+  const owned = warehouses.find(
+    (warehouse) =>
+      warehouse.type === "PERSONAL" && warehouse.ownerEmployeeId === employeeId,
+  );
+  if (owned) return owned.id;
+  const normalized = employeeName.trim();
+  if (!normalized) return null;
+  const exact = warehouses.find(
+    (warehouse) =>
+      warehouse.type === "PERSONAL" &&
+      warehouse.name.trim() === normalized &&
+      (warehouse.ownerEmployeeId === null ||
+        warehouse.ownerEmployeeId === employeeId),
+  );
+  return exact?.id ?? null;
+}
+
 export function OrganizationManager() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState("");
   const [stores, setStores] = useState<Store[]>([]);
+  const [warehouses, setWarehouses] = useState<OrgWarehouse[]>([]);
+  const [warehouseTab, setWarehouseTab] =
+    useState<OrgWarehouse["type"]>("STORE");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeeTotal, setEmployeeTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
@@ -71,7 +128,7 @@ export function OrganizationManager() {
     return orgList.items;
   }, []);
 
-  /** 选中组织的门店 + 员工分页 */
+  /** 选中组织的门店 + 全部仓库 + 员工分页 */
   const loadOrgDetail = useCallback(
     async (organizationId: string, targetPage: number) => {
       const employeeQuery = new URLSearchParams({
@@ -80,15 +137,18 @@ export function OrganizationManager() {
       });
       if (search) employeeQuery.set("search", search);
       if (statusFilter) employeeQuery.set("status", statusFilter);
-      const [storePayload, employeePayload] = await Promise.all([
+      const [storePayload, warehousePayload, employeePayload] = await Promise.all([
         apiFetch(`/api/org/organizations/${organizationId}/stores`),
+        apiFetch(`/api/org/organizations/${organizationId}/warehouses`),
         apiFetch(
           `/api/org/organizations/${organizationId}/employees?${employeeQuery}`,
         ),
       ]);
       const storeList = StoreListSchema.parse(storePayload);
+      const warehouseList = OrgWarehouseListSchema.parse(warehousePayload);
       const employeeList = EmployeeListSchema.parse(employeePayload);
       setStores(storeList.items);
+      setWarehouses(warehouseList.items);
       setEmployees(employeeList.items);
       setEmployeeTotal(employeeList.total);
       setTotalPages(employeeList.totalPages);
@@ -251,9 +311,9 @@ export function OrganizationManager() {
 
       <section className="metric-grid" aria-label="组织摘要">
         <Metric label="组织" value={organizations.length} />
-        <Metric label="当前组织门店" value={stores.length} />
+        <Metric label="门店" value={stores.length} />
+        <Metric label="仓库(含个人仓)" value={warehouses.length} />
         <Metric label="当前组织员工" value={employeeTotal} />
-        <Metric label="系统角色" value={roles.length} />
       </section>
 
       <section className="panel">
@@ -324,8 +384,11 @@ export function OrganizationManager() {
 
             <div className="section-heading" style={{ marginTop: 18 }}>
               <div>
-                <p className="eyebrow">门店</p>
-                <h2>门店清单</h2>
+                <p className="eyebrow">地点</p>
+                <h2>门店与仓库清单</h2>
+                <p className="location-hint">
+                  门店仓对应真实门店，可同步成门店主数据；个人仓单独列出，开通销售账号时再挂到员工；公司总仓 / 售后 / 异常不作为销售归属门店。
+                </p>
               </div>
               <div className="heading-actions">
                 <button
@@ -334,7 +397,7 @@ export function OrganizationManager() {
                   disabled={busy === "sync-stores"}
                   onClick={() => void syncStoresFromWarehouses()}
                 >
-                  {busy === "sync-stores" ? "同步中…" : "从公司仓库生成门店"}
+                  {busy === "sync-stores" ? "同步中…" : "从门店仓生成门店"}
                 </button>
                 <button
                   className="button secondary"
@@ -368,33 +431,39 @@ export function OrganizationManager() {
               </form>
             ) : null}
 
-            <div className="sku-table-wrap" style={{ marginTop: 12 }}>
-              <table className="sku-table">
-                <thead>
-                  <tr>
-                    <th>编码</th>
-                    <th>名称</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stores.length ? (
-                    stores.map((store) => (
-                      <StoreRow
-                        key={store.id}
-                        store={store}
-                        busy={busy}
-                        runAction={runAction}
-                      />
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={3}>暂无门店，可先创建。</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            <div
+              className="inventory-segmented"
+              role="tablist"
+              aria-label="仓库类型"
+              style={{ marginTop: 14 }}
+            >
+              {WAREHOUSE_TYPE_TABS.map((tab) => {
+                const count = warehouses.filter(
+                  (warehouse) => warehouse.type === tab.type,
+                ).length;
+                return (
+                  <button
+                    key={tab.type}
+                    className={warehouseTab === tab.type ? "active" : ""}
+                    onClick={() => setWarehouseTab(tab.type)}
+                    role="tab"
+                    type="button"
+                  >
+                    {tab.label}（{count}）
+                  </button>
+                );
+              })}
             </div>
+
+            <WarehouseDirectory
+              warehouses={warehouses.filter(
+                (warehouse) => warehouse.type === warehouseTab,
+              )}
+              tab={warehouseTab}
+              stores={stores}
+              busy={busy}
+              runAction={runAction}
+            />
           </>
         ) : loading ? (
           <div className="loading-state">正在读取组织…</div>
@@ -477,13 +546,14 @@ export function OrganizationManager() {
                 setEmployeeForm({ ...employeeForm, mobile })
               }
             />
-            <StoreSelect
-              stores={stores}
-              value={employeeForm.storeId}
-              onChange={(storeId) =>
-                setEmployeeForm({ ...employeeForm, storeId })
-              }
-            />
+              <StoreSelect
+                stores={stores}
+                value={employeeForm.storeId}
+                onChange={(storeId) =>
+                  setEmployeeForm({ ...employeeForm, storeId })
+                }
+                optionalHint="非销售可空，销售在开通账号时划分"
+              />
             <button
               className="button primary"
               disabled={busy === "create-employee"}
@@ -506,6 +576,7 @@ export function OrganizationManager() {
                     <th>姓名</th>
                     <th>手机</th>
                     <th>门店</th>
+                    <th>仓库</th>
                     <th>状态</th>
                     <th>登录账号</th>
                     <th>操作</th>
@@ -517,6 +588,7 @@ export function OrganizationManager() {
                       key={employee.id}
                       employee={employee}
                       stores={stores}
+                      warehouses={warehouses}
                       roles={roles}
                       busy={busy}
                       runAction={runAction}
@@ -555,22 +627,91 @@ export function OrganizationManager() {
   );
 }
 
-function StoreRow({
-  store,
+function WarehouseDirectory({
+  warehouses,
+  tab,
+  stores,
   busy,
   runAction,
 }: {
-  store: Store;
+  warehouses: OrgWarehouse[];
+  tab: OrgWarehouse["type"];
+  stores: Store[];
+  busy: string | null;
+  runAction: (key: string, action: () => Promise<string>) => Promise<void>;
+}) {
+  const emptyText =
+    tab === "STORE"
+      ? "暂无门店仓。可点「从门店仓生成门店」，或手工新增门店。"
+      : `暂无${WAREHOUSE_TYPE_LABEL[tab]}。`;
+
+  return (
+    <div className="sku-table-wrap" style={{ marginTop: 12 }}>
+      <table className="sku-table">
+        <thead>
+          <tr>
+            <th>编码</th>
+            <th>名称</th>
+            {tab === "PERSONAL" ? <th>归属员工</th> : null}
+            <th>关联门店</th>
+            <th>在库</th>
+            {tab === "STORE" ? <th>操作</th> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {warehouses.length ? (
+            warehouses.map((warehouse) => (
+              <WarehouseRow
+                key={warehouse.id}
+                warehouse={warehouse}
+                tab={tab}
+                linkedStore={
+                  warehouse.storeId
+                    ? (stores.find((store) => store.id === warehouse.storeId) ??
+                      null)
+                    : null
+                }
+                busy={busy}
+                runAction={runAction}
+              />
+            ))
+          ) : (
+            <tr>
+              <td colSpan={tab === "STORE" || tab === "PERSONAL" ? 5 : 4}>
+                {emptyText}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function WarehouseRow({
+  warehouse,
+  tab,
+  linkedStore,
+  busy,
+  runAction,
+}: {
+  warehouse: OrgWarehouse;
+  tab: OrgWarehouse["type"];
+  linkedStore: Store | null;
   busy: string | null;
   runAction: (key: string, action: () => Promise<string>) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ code: store.code, name: store.name });
+  const [form, setForm] = useState({
+    code: linkedStore?.code ?? warehouse.code,
+    name: linkedStore?.name ?? warehouse.name,
+  });
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await runAction(`store-${store.id}`, async () => {
-      await apiFetch(`/api/org/stores/${store.id}`, {
+    if (!linkedStore) return;
+    await runAction(`store-${linkedStore.id}`, async () => {
+      await apiFetch(`/api/org/stores/${linkedStore.id}`, {
         method: "PATCH",
         body: JSON.stringify({ code: form.code, name: form.name }),
       });
@@ -579,26 +720,42 @@ function StoreRow({
     });
   }
 
+  const colSpan = tab === "STORE" || tab === "PERSONAL" ? 5 : 4;
+
   return (
     <>
       <tr>
         <td>
-          <code>{store.code}</code>
+          <code>{warehouse.code}</code>
         </td>
-        <td>{store.name}</td>
+        <td>{warehouse.name}</td>
+        {tab === "PERSONAL" ? (
+          <td>{warehouse.ownerEmployeeName ?? "未挂员工"}</td>
+        ) : null}
         <td>
-          <button
-            className="text-button"
-            type="button"
-            onClick={() => setEditing((value) => !value)}
-          >
-            {editing ? "收起" : "编辑"}
-          </button>
+          {warehouse.storeName ??
+            (tab === "STORE" ? "未同步门店" : "—")}
         </td>
+        <td>{warehouse.serialCount}</td>
+        {tab === "STORE" ? (
+          <td>
+            {linkedStore ? (
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => setEditing((value) => !value)}
+              >
+                {editing ? "收起" : "编辑门店"}
+              </button>
+            ) : (
+              <span className="inline-warning">请先同步</span>
+            )}
+          </td>
+        ) : null}
       </tr>
-      {editing ? (
+      {editing && linkedStore ? (
         <tr>
-          <td colSpan={3}>
+          <td colSpan={colSpan}>
             <form className="classification-form" onSubmit={save}>
               <Field
                 label="门店编码"
@@ -612,7 +769,7 @@ function StoreRow({
               />
               <button
                 className="button small"
-                disabled={busy === `store-${store.id}`}
+                disabled={busy === `store-${linkedStore.id}`}
                 type="submit"
               >
                 保存
@@ -628,12 +785,14 @@ function StoreRow({
 function EmployeeRow({
   employee,
   stores,
+  warehouses,
   roles,
   busy,
   runAction,
 }: {
   employee: Employee;
   stores: Store[];
+  warehouses: OrgWarehouse[];
   roles: Role[];
   busy: string | null;
   runAction: (key: string, action: () => Promise<string>) => Promise<void>;
@@ -647,6 +806,10 @@ function EmployeeRow({
   });
   const storeName =
     stores.find((store) => store.id === employee.storeId)?.name ?? "—";
+  const warehouseNames =
+    employee.ownedWarehouses.length > 0
+      ? employee.ownedWarehouses.map((item) => item.name).join("、")
+      : "—";
 
   async function saveEmployee(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -674,6 +837,7 @@ function EmployeeRow({
         <td>{employee.name}</td>
         <td>{employee.mobile ?? "—"}</td>
         <td>{storeName}</td>
+        <td>{warehouseNames}</td>
         <td>
           <span
             className={`status-badge ${STATUS_BADGE_CLASS[employee.status] ?? "status-inactive"}`}
@@ -716,7 +880,7 @@ function EmployeeRow({
       </tr>
       {panel === "edit" ? (
         <tr>
-          <td colSpan={7}>
+          <td colSpan={8}>
             <form className="classification-form" onSubmit={saveEmployee}>
               <Field
                 label="姓名"
@@ -763,9 +927,11 @@ function EmployeeRow({
       ) : null}
       {panel === "account" ? (
         <tr>
-          <td colSpan={7}>
+          <td colSpan={8}>
             <AccountPanel
               employee={employee}
+              stores={stores}
+              warehouses={warehouses}
               roles={roles}
               busy={busy}
               runAction={runAction}
@@ -779,11 +945,15 @@ function EmployeeRow({
 
 function AccountPanel({
   employee,
+  stores,
+  warehouses,
   roles,
   busy,
   runAction,
 }: {
   employee: Employee;
+  stores: Store[];
+  warehouses: OrgWarehouse[];
   roles: Role[];
   busy: string | null;
   runAction: (key: string, action: () => Promise<string>) => Promise<void>;
@@ -791,42 +961,143 @@ function AccountPanel({
   const account = employee.account;
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [roleIds, setRoleIds] = useState<string[]>([]);
+  const [roleIds, setRoleIds] = useState<string[]>(account?.roleIds ?? []);
+  const [storeId, setStoreId] = useState(employee.storeId ?? "");
+  const [warehouseIds, setWarehouseIds] = useState<string[]>(
+    account?.warehouseIds?.length
+      ? account.warehouseIds
+      : employee.ownedWarehouses.map((item) => item.id),
+  );
   const [newPassword, setNewPassword] = useState("");
+  const needsLocation = selectedRolesNeedStoreWarehouse(roles, roleIds);
+  // 钱账分离:财务(采购单据/审批)与出纳(付款执行)不可同挂一个账号(ADMIN 技术兜底除外)
+  const chosenRoles = roles.filter(
+    (role) => roleIds.includes(role.id) && role.code !== "ADMIN",
+  );
+  const moneyConflict =
+    chosenRoles.some((role) => role.permissions.includes("procurement:write")) &&
+    chosenRoles.some((role) => role.permissions.includes("procurement:pay"));
 
   function toggleRole(roleId: string) {
-    setRoleIds((current) =>
-      current.includes(roleId)
-        ? current.filter((id) => id !== roleId)
-        : [...current, roleId],
+    const next = roleIds.includes(roleId)
+      ? roleIds.filter((id) => id !== roleId)
+      : [...roleIds, roleId];
+    setRoleIds(next);
+    if (
+      selectedRolesNeedStoreWarehouse(roles, next) &&
+      warehouseIds.length === 0
+    ) {
+      const suggested = suggestPersonalWarehouseId(
+        employee.name,
+        warehouses,
+        employee.id,
+      );
+      if (suggested) setWarehouseIds([suggested]);
+    }
+  }
+
+  function toggleWarehouse(warehouseId: string) {
+    setWarehouseIds((current) =>
+      current.includes(warehouseId)
+        ? current.filter((id) => id !== warehouseId)
+        : [...current, warehouseId],
     );
   }
 
+  const assignableWarehouses = warehouses.filter((warehouse) => {
+    if (warehouse.type === "PERSONAL") {
+      return (
+        warehouse.ownerEmployeeId === null ||
+        warehouse.ownerEmployeeId === employee.id
+      );
+    }
+    if (warehouse.type === "STORE") {
+      if (!storeId) return warehouse.storeId === null;
+      return warehouse.storeId === storeId || warehouse.storeId === null;
+    }
+    return false;
+  });
+
+  const locationMissing = needsLocation && (!storeId || warehouseIds.length === 0);
+
   const roleChecks = (
-    <div className="organization-row" style={{ flexWrap: "wrap", gap: 10 }}>
-      {roles.filter((role) => !role.archivedAt).map((role) => (
-        <label className="check-field" key={role.id}>
-          <input
-            type="checkbox"
-            checked={roleIds.includes(role.id)}
-            onChange={() => toggleRole(role.id)}
-          />
-          <span>
-            {role.name}（{role.code}）
-          </span>
-        </label>
-      ))}
+    <div>
+      <p className="account-step">1. 先划分权限（角色）</p>
+      <div className="organization-row" style={{ flexWrap: "wrap", gap: 10, marginTop: 8 }}>
+        {roles.filter((role) => !role.archivedAt).map((role) => (
+          <label className="check-field" key={role.id}>
+            <input
+              type="checkbox"
+              checked={roleIds.includes(role.id)}
+              onChange={() => toggleRole(role.id)}
+            />
+            <span>
+              {role.name}（{role.code}）
+            </span>
+          </label>
+        ))}
+      </div>
+      {moneyConflict ? (
+        <span className="inline-warning">
+          钱账分离：财务（采购单据/审批）与出纳（付款执行）不能由同一个账号兼任
+        </span>
+      ) : null}
     </div>
   );
+
+  const locationFields = needsLocation ? (
+    <div className="sales-location-block">
+      <p className="account-step">2. 销售权限：再划分门店 + 仓库</p>
+      <div className="organization-row" style={{ marginTop: 8 }}>
+        <StoreSelect
+          stores={stores}
+          value={storeId}
+          onChange={setStoreId}
+          required
+        />
+      </div>
+      <div className="warehouse-pick-list" role="group" aria-label="可划分仓库">
+        {assignableWarehouses.length ? (
+          assignableWarehouses.map((warehouse) => (
+            <label className="check-field" key={warehouse.id}>
+              <input
+                type="checkbox"
+                checked={warehouseIds.includes(warehouse.id)}
+                onChange={() => toggleWarehouse(warehouse.id)}
+              />
+              <span>
+                {warehouse.name}
+                <small>
+                  {" "}
+                  {WAREHOUSE_TYPE_LABEL[warehouse.type]}
+                  {warehouse.storeName ? ` · ${warehouse.storeName}` : ""}
+                </small>
+              </span>
+            </label>
+          ))
+        ) : (
+          <span className="inline-warning">
+            {storeId ? "该门店下暂无可划分的门店仓或空闲个人仓" : "请先选门店"}
+          </span>
+        )}
+      </div>
+      {!storeId || warehouseIds.length === 0 ? (
+        <span className="inline-warning">销售账号必须同时选择门店和至少一个仓库</span>
+      ) : null}
+    </div>
+  ) : null;
+
+  const payloadExtras = needsLocation
+    ? { storeId, warehouseIds }
+    : {};
 
   if (!account) {
     return (
       <form
-        className="classification-form"
-        style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}
+        className="account-setup-form"
         onSubmit={async (event) => {
           event.preventDefault();
-          if (roleIds.length === 0) return;
+          if (roleIds.length === 0 || locationMissing || moneyConflict) return;
           await runAction(`account-create-${employee.id}`, async () => {
             await apiFetch("/api/org/accounts", {
               method: "POST",
@@ -835,6 +1106,7 @@ function AccountPanel({
                 username,
                 password,
                 roleIds,
+                ...payloadExtras,
               }),
             });
             return `已为 ${employee.name} 开通登录账号`;
@@ -854,9 +1126,15 @@ function AccountPanel({
           />
         </label>
         {roleChecks}
+        {locationFields}
         <button
           className="button small"
-          disabled={busy === `account-create-${employee.id}` || roleIds.length === 0}
+          disabled={
+            busy === `account-create-${employee.id}` ||
+            roleIds.length === 0 ||
+            locationMissing ||
+            moneyConflict
+          }
           type="submit"
         >
           开通账号
@@ -869,7 +1147,7 @@ function AccountPanel({
   }
 
   return (
-    <div className="classification-form" style={{ display: "grid", gap: 12 }}>
+    <div className="account-setup-form">
       <div className="organization-row">
         <span>
           登录名 <code>{account.username}</code>
@@ -930,27 +1208,33 @@ function AccountPanel({
       <form
         onSubmit={async (event) => {
           event.preventDefault();
-          if (roleIds.length === 0) return;
+          if (roleIds.length === 0 || locationMissing || moneyConflict) return;
           await runAction(`account-roles-${account.id}`, async () => {
             await apiFetch(`/api/org/accounts/${account.id}`, {
               method: "PATCH",
-              body: JSON.stringify({ roleIds }),
+              body: JSON.stringify({
+                roleIds,
+                ...payloadExtras,
+              }),
             });
-            return "角色已调整";
+            return needsLocation ? "角色与门店仓库已保存" : "角色已调整";
           });
         }}
       >
-        <p style={{ margin: "0 0 6px", fontSize: 12, color: "#687487" }}>
-          调整角色（勾选后保存将覆盖现有角色）
-        </p>
         {roleChecks}
+        {locationFields}
         <button
           className="button small"
           style={{ marginTop: 10 }}
-          disabled={busy === `account-roles-${account.id}` || roleIds.length === 0}
+          disabled={
+            busy === `account-roles-${account.id}` ||
+            roleIds.length === 0 ||
+            locationMissing ||
+            moneyConflict
+          }
           type="submit"
         >
-          保存角色
+          保存权限与地点
         </button>
       </form>
     </div>
@@ -961,16 +1245,30 @@ function StoreSelect({
   stores,
   value,
   onChange,
+  optionalHint,
+  required = false,
 }: {
   stores: Store[];
   value: string;
   onChange: (value: string) => void;
+  optionalHint?: string;
+  required?: boolean;
 }) {
   return (
     <label>
-      <span>归属门店（可选）</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="">不归属门店</option>
+      <span>
+        {required
+          ? "所属门店"
+          : optionalHint
+            ? `归属门店（${optionalHint}）`
+            : "归属门店（可选）"}
+      </span>
+      <select
+        required={required}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">{required ? "请选择门店" : "不归属门店"}</option>
         {stores.map((store) => (
           <option key={store.id} value={store.id}>
             {store.name}

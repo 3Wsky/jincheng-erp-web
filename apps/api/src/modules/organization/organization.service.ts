@@ -22,10 +22,34 @@ import {
   UpdateRoleDto,
   UpdateStoreDto,
 } from "./organization.dto.js";
+import {
+  dataScopeForRole,
+  missingSalesAssignmentMessage,
+  requiresSalesAssignment,
+  SALES_ASSIGNABLE_WAREHOUSE_TYPES,
+  type SalesRoleInput,
+} from "./sales-assignment.js";
+import {
+  moneySeparationConflictMessage,
+  permissionSetViolatesMoneySeparation,
+} from "./role-boundaries.js";
 
 const employeeInclude = {
   store: { select: { id: true, name: true } },
-  account: { select: { id: true, username: true, isFrozen: true } },
+  account: {
+    select: {
+      id: true,
+      username: true,
+      isFrozen: true,
+      roles: {
+        select: {
+          roleId: true,
+          dataScope: true,
+          scopeConfig: true,
+        },
+      },
+    },
+  },
 } satisfies Prisma.EmployeeInclude;
 
 type EmployeeRecord = Prisma.EmployeeGetPayload<{
@@ -180,6 +204,55 @@ export class OrganizationService {
   }
 
   /**
+   * 地点清单:返回全部仓库(含个人仓),供组织页按类型分组展示。
+   * 仓库目前是公司级主数据,不按组织再切分;仍校验组织存在以免对空组织误操作。
+   */
+  async listWarehouses(organizationId: string) {
+    const organization = await this.database.client.organization.findUnique({
+      where: { id: organizationId },
+      select: { id: true },
+    });
+    if (!organization) throw new NotFoundException("组织不存在");
+
+    const warehouses = await this.database.client.warehouse.findMany({
+      include: {
+        store: { select: { id: true, name: true } },
+        _count: { select: { serials: true } },
+      },
+      orderBy: [{ type: "asc" }, { name: "asc" }],
+    });
+    const ownerIds = [
+      ...new Set(
+        warehouses
+          .map((warehouse) => warehouse.ownerEmployeeId)
+          .filter((id): id is string => id !== null),
+      ),
+    ];
+    const owners =
+      ownerIds.length > 0
+        ? await this.database.client.employee.findMany({
+            where: { id: { in: ownerIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+    const ownerNameById = new Map(owners.map((owner) => [owner.id, owner.name]));
+    const items = warehouses.map((warehouse) => ({
+      id: warehouse.id,
+      code: warehouse.code,
+      name: warehouse.name,
+      type: warehouse.type,
+      storeId: warehouse.storeId,
+      storeName: warehouse.store?.name ?? null,
+      ownerEmployeeId: warehouse.ownerEmployeeId,
+      ownerEmployeeName: warehouse.ownerEmployeeId
+        ? (ownerNameById.get(warehouse.ownerEmployeeId) ?? null)
+        : null,
+      serialCount: warehouse._count.serials,
+    }));
+    return { items, total: items.length };
+  }
+
+  /**
    * 从门店类仓库同步门店主数据（幂等可重跑）：
    * - 只处理 type=STORE 的仓库；总仓/售后/异常不是门店，个人仓归属员工，均跳过；
    * - 仓库已关联门店的跳过；同编码门店已存在则只补关联，不重复创建；
@@ -306,8 +379,11 @@ export class OrganizationService {
       }),
       this.database.client.employee.count({ where }),
     ]);
+    const ownedByEmployee = await this.loadEmployeeWarehouses(items);
     return {
-      items: items.map(mapEmployee),
+      items: items.map((item) =>
+        mapEmployee(item, ownedByEmployee.get(item.id) ?? []),
+      ),
       page,
       pageSize,
       total,
@@ -438,7 +514,13 @@ export class OrganizationService {
   async createAccount(input: CreateAccountDto, request: AuthenticatedRequest) {
     const employee = await this.database.client.employee.findUnique({
       where: { id: input.employeeId },
-      select: { id: true, organizationId: true, name: true, status: true },
+      select: {
+        id: true,
+        organizationId: true,
+        name: true,
+        status: true,
+        storeId: true,
+      },
     });
     if (!employee) throw new NotFoundException("员工不存在");
     if (employee.status === "INACTIVE") {
@@ -450,7 +532,14 @@ export class OrganizationService {
     });
     if (existing) throw new ConflictException("该员工已有登录账号");
 
-    await this.assertAssignableRoles(input.roleIds, request);
+    const roles = await this.assertAssignableRoles(input.roleIds, request);
+    const sales = requiresSalesAssignment(roles);
+    const storeId = input.storeId ?? employee.storeId;
+    const warehouseIds = input.warehouseIds ?? [];
+    if (sales) {
+      const missing = missingSalesAssignmentMessage({ storeId, warehouseIds });
+      if (missing) throw new BadRequestException(missing);
+    }
 
     const username = input.username.trim();
     const usernameTaken = await this.database.client.userAccount.findUnique({
@@ -462,8 +551,8 @@ export class OrganizationService {
     const passwordHash = await hashPassword(input.password);
     const id = randomUUID();
     try {
-      await this.database.client.$transaction([
-        this.database.client.userAccount.create({
+      await this.database.client.$transaction(async (tx) => {
+        await tx.userAccount.create({
           data: {
             id,
             employeeId: input.employeeId,
@@ -472,14 +561,23 @@ export class OrganizationService {
             // 新开账号首次登录必须改密(初始密码由管理员告知,不能长期使用)
             mustChangePassword: true,
             roles: {
-              create: input.roleIds.map((roleId) => ({
-                roleId,
-                dataScope: "PERSONAL",
+              create: roles.map((role) => ({
+                roleId: role.id,
+                dataScope: salesRoleDataScope(role),
+                scopeConfig: salesRoleScopeConfig(role, storeId, warehouseIds),
               })),
             },
           },
-        }),
-        this.database.client.auditLog.create({
+        });
+        if (sales && storeId && warehouseIds.length > 0) {
+          await this.assignSalesLocations(tx, {
+            employeeId: employee.id,
+            organizationId: employee.organizationId,
+            storeId,
+            warehouseIds,
+          });
+        }
+        await tx.auditLog.create({
           data: {
             actorUserId: request.user.userId,
             action: "account.create",
@@ -490,10 +588,12 @@ export class OrganizationService {
               employeeId: input.employeeId,
               username,
               roleIds: input.roleIds,
+              storeId: sales ? storeId : null,
+              warehouseIds: sales ? warehouseIds : [],
             },
           },
-        }),
-      ]);
+        });
+      });
     } catch (error) {
       throwKnownConflict(error, "登录名已存在");
     }
@@ -503,7 +603,35 @@ export class OrganizationService {
   async updateAccount(id: string, input: UpdateAccountDto, request: AuthenticatedRequest) {
     const account = await this.database.client.userAccount.findUnique({
       where: { id },
-      select: { id: true, username: true, isFrozen: true },
+      select: {
+        id: true,
+        username: true,
+        isFrozen: true,
+        employeeId: true,
+        employee: {
+          select: {
+            id: true,
+            organizationId: true,
+            storeId: true,
+          },
+        },
+        roles: {
+          select: {
+            roleId: true,
+            dataScope: true,
+            scopeConfig: true,
+            role: {
+              select: {
+                id: true,
+                code: true,
+                permissions: {
+                  select: { permission: { select: { code: true } } },
+                },
+              },
+            },
+          },
+        },
+      },
     });
     if (!account) throw new NotFoundException("账号不存在");
     // 防锁死:冻结/改角色前确保系统仍有可用管理员(2026-08-13)
@@ -517,29 +645,60 @@ export class OrganizationService {
       data.passwordChangedAt = new Date();
       data.mustChangePassword = true;
     }
-    if (input.roleIds !== undefined) {
-      await this.assertAssignableRoles(input.roleIds, request);
+
+    const roles =
+      input.roleIds !== undefined
+        ? await this.assertAssignableRoles(input.roleIds, request)
+        : account.roles.map((relation) => ({
+            id: relation.role.id,
+            code: relation.role.code,
+            permissions: relation.role.permissions.map(
+              (item) => item.permission.code,
+            ),
+          }));
+    const sales = requiresSalesAssignment(roles);
+    const changingLocations =
+      input.storeId !== undefined || input.warehouseIds !== undefined;
+    const changingRoles = input.roleIds !== undefined;
+    const existingWarehouseIds = [
+      ...new Set(account.roles.flatMap((relation) => warehouseIdsFromScope(relation.scopeConfig))),
+    ];
+    const storeId = input.storeId ?? account.employee.storeId;
+    const warehouseIds = input.warehouseIds ?? existingWarehouseIds;
+
+    if (sales && (changingRoles || changingLocations)) {
+      const missing = missingSalesAssignmentMessage({ storeId, warehouseIds });
+      if (missing) throw new BadRequestException(missing);
     }
 
-    await this.database.client.$transaction([
-      this.database.client.userAccount.update({
+    await this.database.client.$transaction(async (tx) => {
+      await tx.userAccount.update({
         where: { id },
         data: {
           ...data,
-          ...(input.roleIds !== undefined
+          ...(changingRoles
             ? {
                 roles: {
                   deleteMany: {},
-                  create: input.roleIds.map((roleId) => ({
-                    roleId,
-                    dataScope: "PERSONAL",
+                  create: roles.map((role) => ({
+                    roleId: role.id,
+                    dataScope: salesRoleDataScope(role),
+                    scopeConfig: salesRoleScopeConfig(role, storeId, warehouseIds),
                   })),
                 },
               }
             : {}),
         },
-      }),
-      this.database.client.auditLog.create({
+      });
+      if (sales && (changingRoles || changingLocations) && storeId && warehouseIds.length > 0) {
+        await this.assignSalesLocations(tx, {
+          employeeId: account.employeeId,
+          organizationId: account.employee.organizationId,
+          storeId,
+          warehouseIds,
+        });
+      }
+      await tx.auditLog.create({
         data: {
           actorUserId: request.user.userId,
           action: "account.update",
@@ -550,11 +709,13 @@ export class OrganizationService {
           afterData: {
             isFrozen: input.isFrozen ?? account.isFrozen,
             passwordChanged: input.password !== undefined,
-            roleIdsChanged: input.roleIds !== undefined,
+            roleIdsChanged: changingRoles,
+            storeId: sales ? storeId : undefined,
+            warehouseIds: sales ? warehouseIds : undefined,
           },
         },
-      }),
-    ]);
+      });
+    });
     return this.database.client.userAccount.findUnique({
       where: { id },
       select: { id: true, username: true, isFrozen: true, employeeId: true },
@@ -594,6 +755,49 @@ export class OrganizationService {
     return { items, total: items.length };
   }
 
+  /** 指定角色的持有账号清单:管理员核对"谁有这个权限"用(role:read) */
+  async listRoleAccounts(roleId: string) {
+    const role = await this.database.client.role.findUnique({
+      where: { id: roleId },
+      select: { id: true },
+    });
+    if (!role) throw new NotFoundException("角色不存在");
+
+    const relations = await this.database.client.userRole.findMany({
+      where: { roleId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            isFrozen: true,
+            employee: {
+              select: {
+                id: true,
+                name: true,
+                employeeNo: true,
+                store: { select: { name: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    const items = relations
+      .map((relation) => ({
+        accountId: relation.user.id,
+        username: relation.user.username,
+        isFrozen: relation.user.isFrozen,
+        dataScope: relation.dataScope,
+        employeeId: relation.user.employee.id,
+        employeeName: relation.user.employee.name,
+        employeeNo: relation.user.employee.employeeNo,
+        storeName: relation.user.employee.store?.name ?? null,
+      }))
+      .sort((a, b) => a.username.localeCompare(b.username));
+    return { items, total: items.length };
+  }
+
   /**
    * 创建自定义角色(role:write,仅管理员):isSystem=false,可在管理台配权/停用。
    * 内置角色由 seed 权威管理(防误改破坏钱账分离等已确认规则),不走本接口。
@@ -607,6 +811,7 @@ export class OrganizationService {
     }
     await this.assertPermissionIds(input.permissionIds);
     await this.assertNoPrivilegedPermissions(input.permissionIds);
+    await this.assertMoneySeparation(input.permissionIds);
     const id = randomUUID();
     try {
       await this.database.client.$transaction([
@@ -654,6 +859,7 @@ export class OrganizationService {
     if (input.permissionIds !== undefined) {
       await this.assertPermissionIds(input.permissionIds);
       await this.assertNoPrivilegedPermissions(input.permissionIds);
+      await this.assertMoneySeparation(input.permissionIds);
     }
 
     const beforeCodes = role.permissions.map((item) => item.permission.code).sort();
@@ -810,11 +1016,16 @@ export class OrganizationService {
   private async assertAssignableRoles(
     roleIds: string[],
     request: AuthenticatedRequest,
-  ) {
+  ): Promise<Array<{ id: string } & SalesRoleInput>> {
     const uniqueIds = [...new Set(roleIds)];
     const roles = await this.database.client.role.findMany({
       where: { id: { in: uniqueIds } },
-      select: { id: true, code: true, archivedAt: true },
+      select: {
+        id: true,
+        code: true,
+        archivedAt: true,
+        permissions: { select: { permission: { select: { code: true } } } },
+      },
     });
     if (roles.length !== uniqueIds.length) {
       throw new BadRequestException("部分角色不存在，请刷新后重试");
@@ -831,6 +1042,186 @@ export class OrganizationService {
         "只有系统管理员可以分配「系统管理员」角色",
       );
     }
+    const mapped = roles.map((role) => ({
+      id: role.id,
+      code: role.code,
+      permissions: role.permissions.map((item) => item.permission.code),
+    }));
+    // 钱账分离:财务(单据/审批)与出纳(付款执行)不可兼任(2026-08-12 业务确认)
+    const conflict = moneySeparationConflictMessage(mapped);
+    if (conflict) throw new UnprocessableEntityException(conflict);
+    return mapped;
+  }
+
+  /** 自定义角色配权不得同时含采购单据写入与付款执行(钱账分离) */
+  private async assertMoneySeparation(permissionIds: string[]) {
+    if (permissionIds.length === 0) return;
+    const permissions = await this.database.client.permission.findMany({
+      where: { id: { in: permissionIds } },
+      select: { code: true },
+    });
+    if (
+      permissionSetViolatesMoneySeparation(
+        permissions.map((item) => item.code),
+      )
+    ) {
+      throw new UnprocessableEntityException(
+        "钱账分离:同一角色不能同时持有 procurement:write(采购单据/审批)与 procurement:pay(付款执行)",
+      );
+    }
+  }
+
+  /** 销售岗:写员工门店归属,并把个人仓挂到该员工 */
+  private async assignSalesLocations(
+    tx: Prisma.TransactionClient,
+    input: {
+      employeeId: string;
+      organizationId: string;
+      storeId: string;
+      warehouseIds: string[];
+    },
+  ) {
+    const store = await tx.store.findUnique({
+      where: { id: input.storeId },
+      select: { id: true, organizationId: true },
+    });
+    if (!store) throw new NotFoundException("门店不存在");
+    if (store.organizationId !== input.organizationId) {
+      throw new BadRequestException("门店不属于该员工所在组织，无法划分");
+    }
+
+    const warehouses = await tx.warehouse.findMany({
+      where: { id: { in: input.warehouseIds } },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        storeId: true,
+        ownerEmployeeId: true,
+      },
+    });
+    if (warehouses.length !== new Set(input.warehouseIds).size) {
+      throw new BadRequestException("部分仓库不存在，请刷新后重试");
+    }
+
+    const forbidden = warehouses.filter(
+      (warehouse) =>
+        !(SALES_ASSIGNABLE_WAREHOUSE_TYPES as readonly string[]).includes(
+          warehouse.type,
+        ),
+    );
+    if (forbidden.length > 0) {
+      throw new BadRequestException(
+        `销售只能划分门店仓或个人仓，不能划分「${forbidden.map((item) => item.name).join("、")}」`,
+      );
+    }
+
+    const storeMismatch = warehouses.filter(
+      (warehouse) =>
+        warehouse.type === "STORE" &&
+        warehouse.storeId &&
+        warehouse.storeId !== input.storeId,
+    );
+    if (storeMismatch.length > 0) {
+      throw new BadRequestException(
+        `仓库「${storeMismatch.map((item) => item.name).join("、")}」不属于所选门店`,
+      );
+    }
+
+    const stolen = warehouses.filter(
+      (warehouse) =>
+        warehouse.type === "PERSONAL" &&
+        warehouse.ownerEmployeeId &&
+        warehouse.ownerEmployeeId !== input.employeeId,
+    );
+    if (stolen.length > 0) {
+      throw new ConflictException(
+        `个人仓「${stolen.map((item) => item.name).join("、")}」已归属其他员工`,
+      );
+    }
+
+    await tx.employee.update({
+      where: { id: input.employeeId },
+      data: { storeId: input.storeId },
+    });
+
+    const personalIds = warehouses
+      .filter((warehouse) => warehouse.type === "PERSONAL")
+      .map((warehouse) => warehouse.id);
+
+    await tx.warehouse.updateMany({
+      where: {
+        ownerEmployeeId: input.employeeId,
+        ...(personalIds.length > 0 ? { id: { notIn: personalIds } } : {}),
+      },
+      data: { ownerEmployeeId: null },
+    });
+
+    for (const warehouse of warehouses) {
+      if (warehouse.type !== "PERSONAL") continue;
+      await tx.warehouse.update({
+        where: { id: warehouse.id },
+        data: {
+          ownerEmployeeId: input.employeeId,
+          storeId: input.storeId,
+        },
+      });
+    }
+  }
+
+  /** 员工列表附带已挂仓库(个人仓 owner + 销售 scopeConfig) */
+  private async loadEmployeeWarehouses(records: EmployeeRecord[]) {
+    const owned = new Map<
+      string,
+      Array<{ id: string; code: string; name: string; type: string }>
+    >();
+    if (records.length === 0) return owned;
+
+    const employeeIds = records.map((record) => record.id);
+    const scopedIds = [
+      ...new Set(
+        records.flatMap((record) =>
+          (record.account?.roles ?? []).flatMap((role) =>
+            warehouseIdsFromScope(role.scopeConfig),
+          ),
+        ),
+      ),
+    ];
+    const warehouses = await this.database.client.warehouse.findMany({
+      where: {
+        OR: [
+          { ownerEmployeeId: { in: employeeIds } },
+          ...(scopedIds.length > 0 ? [{ id: { in: scopedIds } }] : []),
+        ],
+      },
+      select: { id: true, code: true, name: true, type: true, ownerEmployeeId: true },
+    });
+    const warehouseById = new Map(warehouses.map((item) => [item.id, item]));
+
+    for (const record of records) {
+      const ids = new Set<string>();
+      for (const warehouse of warehouses) {
+        if (warehouse.ownerEmployeeId === record.id) ids.add(warehouse.id);
+      }
+      for (const role of record.account?.roles ?? []) {
+        for (const warehouseId of warehouseIdsFromScope(role.scopeConfig)) {
+          ids.add(warehouseId);
+        }
+      }
+      owned.set(
+        record.id,
+        [...ids]
+          .map((id) => warehouseById.get(id))
+          .filter((item): item is NonNullable<typeof item> => item !== undefined)
+          .map((item) => ({
+            id: item.id,
+            code: item.code,
+            name: item.name,
+            type: item.type,
+          })),
+      );
+    }
+    return owned;
   }
 
   /** 自定义角色禁止持有角色管理权,避免自建角色接管权限管理台 */
@@ -897,7 +1288,18 @@ export class OrganizationService {
   }
 }
 
-function mapEmployee(record: EmployeeRecord) {
+function mapEmployee(
+  record: EmployeeRecord,
+  ownedWarehouses: Array<{ id: string; code: string; name: string; type: string }> = [],
+) {
+  const warehouseIds = [
+    ...new Set([
+      ...ownedWarehouses.map((item) => item.id),
+      ...(record.account?.roles ?? []).flatMap((role) =>
+        warehouseIdsFromScope(role.scopeConfig),
+      ),
+    ]),
+  ];
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -906,10 +1308,40 @@ function mapEmployee(record: EmployeeRecord) {
     name: record.name,
     mobile: record.mobile,
     status: record.status,
-    account: record.account,
+    ownedWarehouses,
+    account: record.account
+      ? {
+          id: record.account.id,
+          username: record.account.username,
+          isFrozen: record.account.isFrozen,
+          roleIds: record.account.roles.map((role) => role.roleId),
+          warehouseIds,
+        }
+      : null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
+}
+
+function salesRoleDataScope(role: SalesRoleInput) {
+  if (requiresSalesAssignment([role])) return "STORE" as const;
+  return dataScopeForRole(role.code);
+}
+
+function salesRoleScopeConfig(
+  role: SalesRoleInput,
+  storeId: string | null,
+  warehouseIds: string[],
+) {
+  if (!requiresSalesAssignment([role]) || !storeId) return undefined;
+  return { storeId, warehouseIds };
+}
+
+function warehouseIdsFromScope(config: unknown): string[] {
+  if (!config || typeof config !== "object") return [];
+  const ids = (config as { warehouseIds?: unknown }).warehouseIds;
+  if (!Array.isArray(ids)) return [];
+  return ids.filter((id): id is string => typeof id === "string");
 }
 
 function throwKnownConflict(error: unknown, message: string): never {

@@ -18,7 +18,7 @@ export default function OrganizationAdminPage() {
           </div>
           <h1>组织与员工</h1>
           <p>
-            维护组织、门店、员工档案与登录账号；开通账号需分配角色。所有变更都会写入审计日志并记录操作人。
+            维护组织、门店、全部仓库（含个人仓）和员工账号。开通账号先划分角色；销售岗再划分所属门店与仓库。
           </p>
         </div>
         <div className="catalog-safety-note">
