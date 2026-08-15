@@ -40,6 +40,8 @@ const PERMISSIONS: Array<{ code: string; resource: string; action: string }> = [
   { code: "organization:write", resource: "organization", action: "write" },
   { code: "account:write", resource: "account", action: "write" },
   { code: "role:read", resource: "role", action: "read" },
+  // 角色管理(创建/配权/停用自定义角色):仅系统管理员(2026-08-13 权限管理台)
+  { code: "role:write", resource: "role", action: "write" },
   { code: "audit:read", resource: "audit", action: "read" },
 ];
 
@@ -108,16 +110,22 @@ async function main(): Promise<void> {
     allPermissions.map((item) => [item.code, item.id]),
   );
   // 角色权限以本文件定义为权威来源:已存在的角色同步权限(删除重建关联),
-  // 避免矩阵调整(如 2026-08-12 新增出纳/钱账分离)无法落库
+  // 避免矩阵调整(如 2026-08-12 新增出纳/钱账分离)无法落库。
+  // isSystem=true:内置角色在权限管理台锁定(不可改/不可停用),自定义角色不受影响。
   for (const role of ROLES) {
     const existing = await database.role.findUnique({
       where: { code: role.code },
-      select: { id: true },
+      select: { id: true, isSystem: true },
     });
     const roleId = existing?.id ?? randomUUID();
     if (!existing) {
       await database.role.create({
-        data: { id: roleId, code: role.code, name: role.name },
+        data: { id: roleId, code: role.code, name: role.name, isSystem: true },
+      });
+    } else if (!existing.isSystem) {
+      await database.role.update({
+        where: { id: roleId },
+        data: { isSystem: true },
       });
     }
     const allowedCodes =

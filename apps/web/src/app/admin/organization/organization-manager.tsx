@@ -804,7 +804,7 @@ function AccountPanel({
 
   const roleChecks = (
     <div className="organization-row" style={{ flexWrap: "wrap", gap: 10 }}>
-      {roles.map((role) => (
+      {roles.filter((role) => !role.archivedAt).map((role) => (
         <label className="check-field" key={role.id}>
           <input
             type="checkbox"

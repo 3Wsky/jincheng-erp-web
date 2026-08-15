@@ -4479,6 +4479,104 @@ code {
   background: #fafbfc;
 }
 
+.role-card-archived {
+  opacity: 0.65;
+}
+
+.role-card .status-badge {
+  margin-left: 6px;
+}
+
+.role-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* 自定义角色编辑面板:编码/名称 + 按模块分组的权限勾选 */
+.role-editor {
+  display: grid;
+  gap: 16px;
+}
+
+.role-editor-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.role-editor-fields label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.role-editor-permissions {
+  display: grid;
+  gap: 12px;
+}
+
+.role-editor-permissions h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.role-editor-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.role-editor-group {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fafbfc;
+}
+
+.role-editor-group > strong {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.role-editor-group > strong .mono {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.role-editor-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.role-editor-option {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.role-editor-option .mono {
+  font-size: 11px;
+}
+
+.role-editor-option small {
+  color: var(--muted);
+}
+
+.role-editor-actions {
+  display: flex;
+  gap: 10px;
+}
+
 .role-card strong {
   color: var(--ink);
   font-size: 13px;

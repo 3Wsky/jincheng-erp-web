@@ -4,7 +4,7 @@ import { RolesViewer } from "./roles-viewer";
 export const metadata: Metadata = {
   title: "权限与审批",
   description:
-    "角色与权限码只读查看：Role × Action 矩阵展示，DataScope/Field/Approval 维度待权限矩阵签字",
+    "角色权限管理台：内置角色锁定（seed 权威），管理员可创建/配置/停用自定义角色；DataScope/Field/Approval 维度待签字",
 };
 
 export default function AdminRolesPage() {
@@ -19,15 +19,15 @@ export default function AdminRolesPage() {
           </div>
           <h1>权限与审批</h1>
           <p>
-            查看系统内置角色与权限码的分配关系。所有接口由服务端按
-            Role × Action 逐请求鉴权，页面仅作只读展示。
+            所有接口由服务端按 Role × Action 逐请求鉴权。内置角色锁定不可改，
+            管理员可创建自定义角色并按模块勾选权限；系统始终保留至少一个可用管理员。
           </p>
         </div>
         <div className="catalog-safety-note">
           <span className="safety-icon">✓</span>
           <span>
-            <strong>只读页面</strong>
-            <small>编辑功能待权限矩阵签字（docs/11）后开放</small>
+            <strong>内置角色锁定</strong>
+            <small>种子权威管理 · 自定义角色可配权 · 操作全落审计</small>
           </span>
         </div>
       </header>

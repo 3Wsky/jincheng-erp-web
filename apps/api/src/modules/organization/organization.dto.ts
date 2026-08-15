@@ -182,3 +182,38 @@ export class UpdateAccountDto {
   @IsUUID("all", { each: true })
   roleIds?: string[];
 }
+
+/** 创建自定义角色(内置角色由 seed 权威管理,不走本接口) */
+export class CreateRoleDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(30)
+  @Matches(/^[A-Z][A-Z0-9_]*$/, {
+    message: "角色编码只能包含大写字母、数字和下划线,且以字母开头",
+  })
+  code!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(30)
+  name!: string;
+
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsUUID("all", { each: true })
+  permissionIds!: string[];
+}
+
+export class UpdateRoleDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(30)
+  name?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsUUID("all", { each: true })
+  permissionIds?: string[];
+}

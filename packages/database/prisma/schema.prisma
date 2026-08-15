@@ -209,10 +209,15 @@ model UserAccount {
   updatedAt    DateTime   @updatedAt @db.Timestamptz(3)
 }
 
+/// 角色:isSystem=true 为 seed 内置角色(权限由 seed 权威管理,UI 不可改不可停用,
+/// 防误改破坏钱账分离等已确认规则);自定义角色可在权限管理台创建与配权。
+/// archivedAt 非空 = 已停用(不物理删除;有账号挂载的角色不可停用)。
 model Role {
   id          String           @id @default(uuid()) @db.Uuid
   code        String           @unique
   name        String
+  isSystem    Boolean          @default(false)
+  archivedAt  DateTime?        @db.Timestamptz(3)
   users       UserRole[]
   permissions RolePermission[]
 }

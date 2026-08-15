@@ -63,6 +63,10 @@
 | API-ORG-012  | `GET /roles`                                 | 角色列表（含权限码）                           | VERIFY   |
 | API-ORG-013  | `GET /permissions`                           | 权限清单                                       | VERIFY   |
 | API-ORG-014  | `POST /organizations/{id}/stores/sync-from-warehouses` | 从门店类仓库同步门店主数据（幂等；总仓/售后/个人仓不参与） | VERIFY   |
+| API-ORG-015  | `POST /roles`                                | 创建自定义角色（内置编码拒绝；不可授予 role:write） | VERIFY   |
+| API-ORG-016  | `PATCH /roles/{id}`                          | 更新自定义角色名称/权限（内置角色 422）        | VERIFY   |
+| API-ORG-017  | `POST /roles/{id}/archive`                   | 停用自定义角色（有账号挂载时拒绝）             | VERIFY   |
+| API-ORG-018  | `POST /roles/{id}/restore`                   | 恢复已停用自定义角色                           | VERIFY   |
 | API-INV-001  | `GET /inventory/overview`                    | 仓库总览：按仓库聚合序列号，区分公司/个人      | VERIFY   |
 | API-INV-002  | `GET /inventory/warehouses/{id}/serials`     | 指定仓库序列号明细（分页，支持 SKU/IMEI/SN 搜索） | VERIFY   |
 | API-INV-003  | `GET /inventory/search`                      | 全局查货明细：一个关键字跨仓匹配 IMEI 主/副、SN、SKU 编码/名称、单/多条码、品牌与型号（支持连写容错：mate80promax 可命中 Mate 80 Pro Max）；支持状态/仓库/SKU 过滤，返回分页结果 + 全量状态分布聚合（AC-F-004） | VERIFY   |

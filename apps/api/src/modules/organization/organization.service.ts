@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from "@nestjs/common";
 import { hashPassword, Prisma } from "@jincheng/database";
 import { randomUUID } from "node:crypto";
@@ -12,11 +13,13 @@ import {
   CreateAccountDto,
   CreateEmployeeDto,
   CreateOrganizationDto,
+  CreateRoleDto,
   CreateStoreDto,
   ListEmployeesQueryDto,
   UpdateAccountDto,
   UpdateEmployeeDto,
   UpdateOrganizationDto,
+  UpdateRoleDto,
   UpdateStoreDto,
 } from "./organization.dto.js";
 
@@ -28,6 +31,22 @@ const employeeInclude = {
 type EmployeeRecord = Prisma.EmployeeGetPayload<{
   include: typeof employeeInclude;
 }>;
+
+/** 内置角色编码:不可通过管理台创建同名自定义角色(seed 权威) */
+const SYSTEM_ROLE_CODES = [
+  "ADMIN",
+  "BOSS",
+  "STORE_MANAGER",
+  "WAREHOUSE_KEEPER",
+  "FINANCE",
+  "CASHIER",
+  "SALES",
+  "HR",
+  "OPERATOR",
+];
+
+/** 仅内置管理员可持有:自定义角色勾选后会形成权限管理越权 */
+const PRIVILEGED_PERMISSION_CODES = ["role:write"];
 
 @Injectable()
 export class OrganizationService {
@@ -431,13 +450,7 @@ export class OrganizationService {
     });
     if (existing) throw new ConflictException("该员工已有登录账号");
 
-    const roles = await this.database.client.role.findMany({
-      where: { id: { in: input.roleIds } },
-      select: { id: true },
-    });
-    if (roles.length !== input.roleIds.length) {
-      throw new BadRequestException("部分角色不存在，请刷新后重试");
-    }
+    await this.assertAssignableRoles(input.roleIds, request);
 
     const username = input.username.trim();
     const usernameTaken = await this.database.client.userAccount.findUnique({
@@ -493,6 +506,8 @@ export class OrganizationService {
       select: { id: true, username: true, isFrozen: true },
     });
     if (!account) throw new NotFoundException("账号不存在");
+    // 防锁死:冻结/改角色前确保系统仍有可用管理员(2026-08-13)
+    await this.assertNotLastAdmin(id, input);
 
     const data: Prisma.UserAccountUpdateInput = {};
     if (input.isFrozen !== undefined) data.isFrozen = input.isFrozen;
@@ -503,13 +518,7 @@ export class OrganizationService {
       data.mustChangePassword = true;
     }
     if (input.roleIds !== undefined) {
-      const roles = await this.database.client.role.findMany({
-        where: { id: { in: input.roleIds } },
-        select: { id: true },
-      });
-      if (roles.length !== input.roleIds.length) {
-        throw new BadRequestException("部分角色不存在，请刷新后重试");
-      }
+      await this.assertAssignableRoles(input.roleIds, request);
     }
 
     await this.database.client.$transaction([
@@ -556,17 +565,21 @@ export class OrganizationService {
 
   async listRoles() {
     const roles = await this.database.client.role.findMany({
-      orderBy: { code: "asc" },
+      orderBy: [{ isSystem: "desc" }, { code: "asc" }],
       include: {
         permissions: {
           include: { permission: { select: { code: true } } },
         },
+        _count: { select: { users: true } },
       },
     });
     const items = roles.map((role) => ({
       id: role.id,
       code: role.code,
       name: role.name,
+      isSystem: role.isSystem,
+      archivedAt: role.archivedAt,
+      accountCount: role._count.users,
       permissions: role.permissions
         .map((item) => item.permission.code)
         .sort(),
@@ -579,6 +592,308 @@ export class OrganizationService {
       orderBy: [{ resource: "asc" }, { action: "asc" }],
     });
     return { items, total: items.length };
+  }
+
+  /**
+   * 创建自定义角色(role:write,仅管理员):isSystem=false,可在管理台配权/停用。
+   * 内置角色由 seed 权威管理(防误改破坏钱账分离等已确认规则),不走本接口。
+   */
+  async createRole(input: CreateRoleDto, request: AuthenticatedRequest) {
+    const code = input.code.trim();
+    if (SYSTEM_ROLE_CODES.includes(code)) {
+      throw new UnprocessableEntityException(
+        `「${code}」是内置角色编码,由种子脚本权威管理,请换一个编码`,
+      );
+    }
+    await this.assertPermissionIds(input.permissionIds);
+    await this.assertNoPrivilegedPermissions(input.permissionIds);
+    const id = randomUUID();
+    try {
+      await this.database.client.$transaction([
+        this.database.client.role.create({
+          data: {
+            id,
+            code: input.code.trim(),
+            name: input.name.trim(),
+            isSystem: false,
+            permissions: {
+              create: input.permissionIds.map((permissionId) => ({
+                permissionId,
+              })),
+            },
+          },
+        }),
+        this.database.client.auditLog.create({
+          data: {
+            actorUserId: request.user.userId,
+            action: "role.create",
+            resource: "role",
+            resourceId: id,
+            requestId: request.requestId,
+            afterData: {
+              code: input.code.trim(),
+              name: input.name.trim(),
+              permissionCount: input.permissionIds.length,
+            },
+          },
+        }),
+      ]);
+    } catch (error) {
+      throwKnownConflict(error, "角色编码已存在");
+    }
+    return this.roleDetail(id);
+  }
+
+  /** 更新自定义角色(名称/权限);内置角色与已停用角色拒绝修改 */
+  async updateRole(
+    id: string,
+    input: UpdateRoleDto,
+    request: AuthenticatedRequest,
+  ) {
+    const role = await this.loadEditableRole(id);
+    if (input.permissionIds !== undefined) {
+      await this.assertPermissionIds(input.permissionIds);
+      await this.assertNoPrivilegedPermissions(input.permissionIds);
+    }
+
+    const beforeCodes = role.permissions.map((item) => item.permission.code).sort();
+    await this.database.client.$transaction([
+      this.database.client.role.update({
+        where: { id },
+        data: {
+          ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+          ...(input.permissionIds !== undefined
+            ? {
+                permissions: {
+                  deleteMany: {},
+                  create: input.permissionIds.map((permissionId) => ({
+                    permissionId,
+                  })),
+                },
+              }
+            : {}),
+        },
+      }),
+      this.database.client.auditLog.create({
+        data: {
+          actorUserId: request.user.userId,
+          action: "role.update",
+          resource: "role",
+          resourceId: id,
+          requestId: request.requestId,
+          beforeData: { name: role.name, permissions: beforeCodes },
+          afterData: {
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(input.permissionIds !== undefined
+              ? { permissionCount: input.permissionIds.length }
+              : {}),
+          },
+        },
+      }),
+    ]);
+    return this.roleDetail(id);
+  }
+
+  /**
+   * 停用自定义角色(软删,不物理删除):有账号挂载时拒绝,
+   * 需先在账号管理里移除该角色。已登录账号的令牌权限在下次请求时按库重新校验。
+   */
+  async archiveRole(id: string, request: AuthenticatedRequest) {
+    const role = await this.loadEditableRole(id);
+    const accountCount = await this.database.client.userRole.count({
+      where: { roleId: id },
+    });
+    if (accountCount > 0) {
+      throw new UnprocessableEntityException(
+        `该角色仍有 ${accountCount} 个账号挂载,请先在账号管理中移除后再停用`,
+      );
+    }
+    const archivedAt = new Date();
+    await this.database.client.$transaction([
+      this.database.client.role.update({
+        where: { id },
+        data: { archivedAt },
+      }),
+      this.database.client.auditLog.create({
+        data: {
+          actorUserId: request.user.userId,
+          action: "role.archive",
+          resource: "role",
+          resourceId: id,
+          requestId: request.requestId,
+          beforeData: { code: role.code, archivedAt: null },
+          afterData: { archivedAt: archivedAt.toISOString() },
+        },
+      }),
+    ]);
+    return this.roleDetail(id);
+  }
+
+  /** 恢复已停用的自定义角色 */
+  async restoreRole(id: string, request: AuthenticatedRequest) {
+    const role = await this.database.client.role.findUnique({
+      where: { id },
+      select: { id: true, code: true, isSystem: true, archivedAt: true },
+    });
+    if (!role) throw new NotFoundException("角色不存在");
+    if (role.isSystem) {
+      throw new UnprocessableEntityException("内置角色由种子脚本权威管理,不可在管理台操作");
+    }
+    if (!role.archivedAt) {
+      throw new UnprocessableEntityException("角色未停用,无需恢复");
+    }
+    await this.database.client.$transaction([
+      this.database.client.role.update({
+        where: { id },
+        data: { archivedAt: null },
+      }),
+      this.database.client.auditLog.create({
+        data: {
+          actorUserId: request.user.userId,
+          action: "role.restore",
+          resource: "role",
+          resourceId: id,
+          requestId: request.requestId,
+          beforeData: { code: role.code, archivedAt: role.archivedAt.toISOString() },
+          afterData: { archivedAt: null },
+        },
+      }),
+    ]);
+    return this.roleDetail(id);
+  }
+
+  /** 单角色返回(与 listRoles 条目同构) */
+  private async roleDetail(id: string) {
+    const role = await this.database.client.role.findUnique({
+      where: { id },
+      include: {
+        permissions: { include: { permission: { select: { code: true } } } },
+        _count: { select: { users: true } },
+      },
+    });
+    if (!role) throw new NotFoundException("角色不存在");
+    return {
+      id: role.id,
+      code: role.code,
+      name: role.name,
+      isSystem: role.isSystem,
+      archivedAt: role.archivedAt,
+      accountCount: role._count.users,
+      permissions: role.permissions.map((item) => item.permission.code).sort(),
+    };
+  }
+
+  /** 加载可编辑角色:不存在 404;内置或已停用 422 */
+  private async loadEditableRole(id: string) {
+    const role = await this.database.client.role.findUnique({
+      where: { id },
+      include: {
+        permissions: { include: { permission: { select: { code: true } } } },
+      },
+    });
+    if (!role) throw new NotFoundException("角色不存在");
+    if (role.isSystem) {
+      throw new UnprocessableEntityException(
+        "内置角色由种子脚本权威管理,不可在管理台修改(防止破坏钱账分离等已确认规则)",
+      );
+    }
+    if (role.archivedAt) {
+      throw new UnprocessableEntityException("角色已停用,请先恢复后再修改");
+    }
+    return role;
+  }
+
+  /**
+   * 开账号/改角色时校验:角色必须存在且未停用;
+   * 系统管理员角色仅持有 role:write 的人(内置 ADMIN)可授予,防人事越权提权。
+   */
+  private async assertAssignableRoles(
+    roleIds: string[],
+    request: AuthenticatedRequest,
+  ) {
+    const uniqueIds = [...new Set(roleIds)];
+    const roles = await this.database.client.role.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true, code: true, archivedAt: true },
+    });
+    if (roles.length !== uniqueIds.length) {
+      throw new BadRequestException("部分角色不存在，请刷新后重试");
+    }
+    const archived = roles.filter((role) => role.archivedAt);
+    if (archived.length > 0) {
+      throw new UnprocessableEntityException(
+        `已停用角色不能分配:${archived.map((role) => role.code).join("、")}`,
+      );
+    }
+    const grantingAdmin = roles.some((role) => role.code === "ADMIN");
+    if (grantingAdmin && !request.user.permissions.includes("role:write")) {
+      throw new UnprocessableEntityException(
+        "只有系统管理员可以分配「系统管理员」角色",
+      );
+    }
+  }
+
+  /** 自定义角色禁止持有角色管理权,避免自建角色接管权限管理台 */
+  private async assertNoPrivilegedPermissions(permissionIds: string[]) {
+    if (permissionIds.length === 0) return;
+    const privileged = await this.database.client.permission.findMany({
+      where: {
+        id: { in: permissionIds },
+        code: { in: PRIVILEGED_PERMISSION_CODES },
+      },
+      select: { code: true },
+    });
+    if (privileged.length > 0) {
+      throw new UnprocessableEntityException(
+        `自定义角色不能授予 ${privileged.map((item) => item.code).join("、")}(仅内置管理员持有)`,
+      );
+    }
+  }
+
+  /** 校验权限码 ID 均存在 */
+  private async assertPermissionIds(permissionIds: string[]) {
+    if (permissionIds.length === 0) return;
+    const found = await this.database.client.permission.count({
+      where: { id: { in: permissionIds } },
+    });
+    if (found !== new Set(permissionIds).size) {
+      throw new BadRequestException("部分权限码不存在,请刷新后重试");
+    }
+  }
+
+  /**
+   * 防锁死校验(2026-08-13):禁止冻结最后一个可用管理员账号,
+   * 或移除其 ADMIN 角色——避免系统再无人能进入权限管理。
+   */
+  private async assertNotLastAdmin(
+    accountId: string,
+    input: { isFrozen?: boolean; roleIds?: string[] },
+  ) {
+    const adminRole = await this.database.client.role.findUnique({
+      where: { code: "ADMIN" },
+      select: { id: true },
+    });
+    if (!adminRole) return;
+
+    const targetHasAdmin = await this.database.client.userRole.findUnique({
+      where: { userId_roleId: { userId: accountId, roleId: adminRole.id } },
+      select: { userId: true },
+    });
+    if (!targetHasAdmin) return;
+
+    const willFreeze = input.isFrozen === true;
+    const willRemoveAdmin =
+      input.roleIds !== undefined && !input.roleIds.includes(adminRole.id);
+    if (!willFreeze && !willRemoveAdmin) return;
+
+    const activeAdminCount = await this.database.client.userRole.count({
+      where: { roleId: adminRole.id, user: { isFrozen: false } },
+    });
+    if (activeAdminCount <= 1) {
+      throw new UnprocessableEntityException(
+        "系统必须保留至少一个可用的管理员账号,不能冻结最后一个管理员或移除其管理员角色",
+      );
+    }
   }
 }
 

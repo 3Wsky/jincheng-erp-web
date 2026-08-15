@@ -18,11 +18,13 @@ import {
   CreateAccountDto,
   CreateEmployeeDto,
   CreateOrganizationDto,
+  CreateRoleDto,
   CreateStoreDto,
   ListEmployeesQueryDto,
   UpdateAccountDto,
   UpdateEmployeeDto,
   UpdateOrganizationDto,
+  UpdateRoleDto,
   UpdateStoreDto,
 } from "./organization.dto.js";
 import { OrganizationService } from "./organization.service.js";
@@ -192,7 +194,7 @@ export class OrganizationController {
 
   @Get("roles")
   @UseGuards(requirePermissions("role:read"))
-  @ApiOperation({ summary: "角色列表（含权限码）" })
+  @ApiOperation({ summary: "角色列表（含权限码/系统标记/挂载账号数）" })
   listRoles() {
     return this.organization.listRoles();
   }
@@ -202,5 +204,52 @@ export class OrganizationController {
   @ApiOperation({ summary: "权限清单" })
   listPermissions() {
     return this.organization.listPermissions();
+  }
+
+  @Post("roles")
+  @UseGuards(requirePermissions("role:write"))
+  @ApiOperation({
+    summary: "创建自定义角色（内置角色由 seed 权威管理，不走本接口）",
+  })
+  createRole(
+    @Body() body: CreateRoleDto,
+    @Req() request: AuthenticatedRequest,
+    @Headers("x-request-id") requestId?: string,
+  ) {
+    return this.organization.createRole(body, this.requestOf(request, requestId));
+  }
+
+  @Patch("roles/:id")
+  @UseGuards(requirePermissions("role:write"))
+  @ApiOperation({ summary: "更新自定义角色名称/权限（内置角色 422 拒绝）" })
+  updateRole(
+    @Param("id") id: string,
+    @Body() body: UpdateRoleDto,
+    @Req() request: AuthenticatedRequest,
+    @Headers("x-request-id") requestId?: string,
+  ) {
+    return this.organization.updateRole(id, body, this.requestOf(request, requestId));
+  }
+
+  @Post("roles/:id/archive")
+  @UseGuards(requirePermissions("role:write"))
+  @ApiOperation({ summary: "停用自定义角色（软删；有账号挂载时 422 拒绝）" })
+  archiveRole(
+    @Param("id") id: string,
+    @Req() request: AuthenticatedRequest,
+    @Headers("x-request-id") requestId?: string,
+  ) {
+    return this.organization.archiveRole(id, this.requestOf(request, requestId));
+  }
+
+  @Post("roles/:id/restore")
+  @UseGuards(requirePermissions("role:write"))
+  @ApiOperation({ summary: "恢复已停用的自定义角色" })
+  restoreRole(
+    @Param("id") id: string,
+    @Req() request: AuthenticatedRequest,
+    @Headers("x-request-id") requestId?: string,
+  ) {
+    return this.organization.restoreRole(id, this.requestOf(request, requestId));
   }
 }

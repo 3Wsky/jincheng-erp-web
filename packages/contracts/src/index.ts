@@ -287,6 +287,12 @@ export const RoleSchema = z.object({
   id: z.uuid(),
   code: z.string(),
   name: z.string(),
+  /** 内置角色(seed 权威管理):管理台锁定不可改不可停用 */
+  isSystem: z.boolean(),
+  /** 非空 = 已停用(软删,有账号挂载的角色不可停用) */
+  archivedAt: z.iso.datetime().nullable(),
+  /** 当前挂载账号数 */
+  accountCount: z.number().int().nonnegative(),
   permissions: z.array(z.string()),
 });
 

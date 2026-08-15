@@ -101,7 +101,10 @@ export class JwtAuthGuard implements CanActivate {
       }
     }
 
-    const roles = account.roles.map((relation) => ({
+    const activeRoles = account.roles.filter(
+      (relation) => !relation.role.archivedAt,
+    );
+    const roles = activeRoles.map((relation) => ({
       id: relation.role.id,
       code: relation.role.code,
       name: relation.role.name,
@@ -109,7 +112,7 @@ export class JwtAuthGuard implements CanActivate {
     }));
     const permissions = [
       ...new Set(
-        account.roles.flatMap((relation) =>
+        activeRoles.flatMap((relation) =>
           relation.role.permissions.map((item) => item.permission.code),
         ),
       ),
