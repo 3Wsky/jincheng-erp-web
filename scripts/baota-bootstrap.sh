@@ -123,13 +123,19 @@ ensure_pnpm() {
   echo "未检测到 pnpm，改用国内镜像安装 pnpm 11…"
 
   if command -v npm >/dev/null 2>&1; then
-    npm config set registry https://registry.npmmirror.com
-    npm install -g pnpm@11.16.0 && return 0
+    npm config set registry https://registry.npmmirror.com || true
+    if npm install -g pnpm@11.16.0; then
+      return 0
+    fi
+    echo "npm 全局安装 pnpm 失败，继续尝试其他方式…"
   fi
 
   if command -v corepack >/dev/null 2>&1; then
     corepack enable || true
-    corepack prepare pnpm@11.16.0 --activate && return 0
+    if corepack prepare pnpm@11.16.0 --activate; then
+      return 0
+    fi
+    echo "corepack 安装 pnpm 失败，继续下载独立二进制…"
   fi
 
   local pnpm_bin="/usr/local/node24/bin/pnpm"
@@ -168,7 +174,9 @@ if (( node_major < 24 )); then
   exit 5
 fi
 
-if [[ ! -d "$src_dir/.git" ]]; then
+if [[ "${ERP_SKIP_GIT:-}" == "1" ]]; then
+  echo "跳过 git 拉取（ERP_SKIP_GIT=1），使用现有 $src_dir"
+elif [[ ! -d "$src_dir/.git" ]]; then
   echo "正在克隆仓库（国内若长时间无进度，用 Ctrl+C 后改走镜像）…"
   if ! git clone --branch main --depth 1 --progress "$repo_url" "$src_dir"; then
     echo "GitHub 直连失败，改用镜像…"
@@ -176,9 +184,22 @@ if [[ ! -d "$src_dir/.git" ]]; then
       "https://gitclone.com/github.com/3Wsky/jincheng-erp-web.git" "$src_dir"
   fi
 else
-  echo "已有源码目录，拉取最新 main…"
-  git -C "$src_dir" fetch --depth 1 --progress origin main
-  git -C "$src_dir" checkout -B main origin/main
+  echo "已有源码目录，拉取最新 main（最多等 45 秒）…"
+  fetch_ok=0
+  if command -v timeout >/dev/null 2>&1; then
+    if GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=20 \
+      timeout 45 git -C "$src_dir" fetch --depth 1 --progress origin main; then
+      fetch_ok=1
+    fi
+  elif GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=20 \
+    git -C "$src_dir" fetch --depth 1 --progress origin main; then
+    fetch_ok=1
+  fi
+  if [[ "$fetch_ok" -eq 1 ]]; then
+    git -C "$src_dir" checkout -B main origin/main
+  else
+    echo "git fetch 超时或失败，继续使用本地已有代码。"
+  fi
 fi
 
 cd "$src_dir"
