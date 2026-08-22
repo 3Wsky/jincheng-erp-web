@@ -7,7 +7,13 @@ export const metadata: Metadata = {
     "供应商、采购单三维度状态机(审批/付款/收货)、扫码收货生成序列号(docs/12 第 3 节)",
 };
 
-export default function ProcurementOrdersPage() {
+export default async function ProcurementOrdersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ new?: string }>;
+}) {
+  // 顶栏「新建业务」快捷入口:?new=1 直接打开新建表单
+  const autoCreate = (await searchParams).new === "1";
   return (
     <main className="catalog-page">
       <header className="page-heading catalog-header">
@@ -31,7 +37,7 @@ export default function ProcurementOrdersPage() {
           </span>
         </div>
       </header>
-      <ProcurementManager />
+      <ProcurementManager autoCreate={autoCreate} />
     </main>
   );
 }

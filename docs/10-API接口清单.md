@@ -15,7 +15,8 @@
 | API-AUTH-001~010 | 身份与权限 | `/auth/sessions`、`/me`、`/roles`、`/permissions`            |    1 | AC-F-001~002  |
 | API-ORG-001~010  | 组织员工   | `/stores`、`/employees`、`/handovers`                        | 1～4 | AC-F-001、020 |
 | API-CAT-001~010  | 商品 SKU   | `/products`、`/skus`、`/barcodes`                            |    2 | AC-F-003      |
-| API-INV-001~020  | 库存与查货 | `/inventory/search`、`/inventory/serials/:id`、`/stocktakes` |    2 | AC-F-004~007  |
+| API-INV-001~020  | 库存与查货 | `/inventory/search`、`/inventory/serials/:id`、`/stocktakes` |    2 | AC-F-004~006  |
+| API-PST-001~007  | 个人库存   | `/personal-stock/mine`、`/orders`、`/:id/submit`、`/:id/confirm` |    2 | AC-F-007      |
 | API-TRF-001~020  | 调拨       | `/transfers`、`/:id/ship`、`/:id/receive`、`/:id/exceptions` |    2 | AC-F-008~009  |
 | API-PUR-001~020  | 采购       | `/purchase-orders`、`/:id/payments`、`/:id/receipts`         |    2 | AC-F-010~011  |
 | API-SAL-001~030  | 销售退换   | `/sales-orders`、`/:id/payments`、`/sales-returns`           |    3 | AC-F-012~014  |
@@ -132,13 +133,13 @@
 | API-STK-009 | `POST /stocktakes/{id}/post`    | 过账：APPROVED → POSTED，盘亏转 ABNORMAL + STOCK_LOSS 流水，解除封存 | VERIFY   |
 | API-STK-010 | `POST /stocktakes/{id}/cancel`  | 取消：DRAFT/COUNTING → CANCELLED，解除封存                    | VERIFY   |
 
-盘点读接口需 `inventory:read`，全部命令需 `inventory:write`。**封存规则（2026-08-12 业务确认）**：盘点期间（COUNTING/SUBMITTED/APPROVED）该仓库禁止调拨（建单/锁定/发出/接收）与采购收货，统一由 `StocktakeFreezeService` 在业务事务内拦截（422）。**待签字项**：审批分级、盘亏报损/找回闭环、盘盈补录流程、复盘次数上限。
+盘点读接口需 `inventory:read`，全部命令需 `inventory:write`。**封存规则（2026-08-12 业务确认）**：盘点期间（COUNTING/SUBMITTED/APPROVED）该仓库禁止调拨（建单/锁定/发出/接收）、采购收货与个人库存领用/归还/转交，统一由 `StocktakeFreezeService` 在业务事务内拦截（422）。**待签字项**：审批分级、盘亏报损/找回闭环、盘盈补录流程、复盘次数上限。
 
 ## 2.6 已实现的待办接口（2026-08-13）
 
 | 编号         | 方法与路径           | 作用                                                                 | 当前状态 |
 | ------------ | -------------------- | -------------------------------------------------------------------- | -------- |
-| API-TASK-001 | `GET /tasks/summary` | 待办汇总：由业务单据状态实时推导（不建任务表），按当前用户权限过滤分组——调拨待审批/锁库/发出/接收（transfer:write）、采购待审批/收货（procurement:write）、采购待付款（procurement:pay）、盘点进行中（inventory:write）、客户回访到期（customer:read，2026-08-13 补充）、异常设备待处理（inventory:read） | VERIFY   |
+| API-TASK-001 | `GET /tasks/summary` | 待办汇总：由业务单据状态实时推导（不建任务表），按当前用户权限过滤分组——调拨待审批/锁库/发出/接收（transfer:write）、采购待审批/收货（procurement:write）、采购待付款（procurement:pay）、盘点进行中（inventory:write）、个人库存领用/归还待确认（inventory:write）、转交待接收（接收方本人）、客户回访到期（customer:read）、异常设备待处理（inventory:read） | VERIFY   |
 
 登录即可访问，分组在服务端按权限过滤（出纳仅见待付款等）；审批流单据化（/approvals，含转交/催办/审批链）待审批矩阵签字后设计。
 
@@ -154,6 +155,20 @@
 | API-CRM-006 | `POST /customers/{id}/followups`  | 添加回访：结果为 REQ-PEOPLE-010 的 8 个标准枚举；结果=有意向时可填意向商品；nextFollowupAt 到期自动进待办 | VERIFY   |
 
 读接口需 `customer:read`，写接口需 `customer:write`（seed：销售/店长可写，财务/老板/运营脱敏查）。**手机号脱敏规则**：11 位保留前 3 后 4（138\*\*\*\*5678），全员一律脱敏——明文可见角色待 Field 维度签字（docs/11），包括管理员。**待签字项**：客户去重匹配键与合并策略（docs/15，合并接口 /customer-merges 未实现）、来源渠道枚举（当前自由文本）、企微/小程序会员身份映射（BLOCKED 于平台权限）、回访方式枚举。
+
+## 2.8 已实现的个人库存接口（2026-08-16，AC-F-007）
+
+| 编号        | 方法与路径                                 | 作用                                                                 | 当前状态 |
+| ----------- | ------------------------------------------ | -------------------------------------------------------------------- | -------- |
+| API-PST-001 | `GET /personal-stock/mine`                 | 我的库存：按个人仓列出在库设备（含期初仍为 NORMAL 的个人仓货物）；销售本人、店长本店、ADMIN/BOSS/组织范围全部 | VERIFY   |
+| API-PST-002 | `GET /personal-stock/orders`               | 个人库存单据分页（类型/状态过滤，按可见范围）                        | VERIFY   |
+| API-PST-003 | `POST /personal-stock/orders`              | 创建草稿：领用=门店/总仓→个人仓；归还=个人仓→门店/总仓；转交=个人仓→他人个人仓 | VERIFY   |
+| API-PST-004 | `GET /personal-stock/orders/{id}`          | 单据详情（明细 + 握手时间）                                          | VERIFY   |
+| API-PST-005 | `POST /personal-stock/orders/{id}/submit`  | 提交并锁库：DRAFT → SUBMITTED；序列号 NORMAL/PERSONAL → LOCKED     | VERIFY   |
+| API-PST-006 | `POST /personal-stock/orders/{id}/confirm` | 确认落位：SUBMITTED → CONFIRMED；写 PERSONAL_ISSUE/RETURN 流水     | VERIFY   |
+| API-PST-007 | `POST /personal-stock/orders/{id}/cancel`  | 取消：DRAFT 直接作废；SUBMITTED 解锁并恢复锁库前状态                 | VERIFY   |
+
+全部接口登录 + `inventory:read`。**确认规则**：领用/归还确认需 `inventory:write`（库管）；转交确认必须 `toEmployeeId` 为当前员工（接收方握手，AC-F-007）。销售仅能对自己的个人仓建单；库管可代领用。提交/确认接入 `StocktakeFreezeService`。**不新增 MovementType**；转交流水 `movementType=PERSONAL_ISSUE`、`documentType=PERSONAL_HANDOVER`。
 
 ## 3. 关键命令接口草案
 

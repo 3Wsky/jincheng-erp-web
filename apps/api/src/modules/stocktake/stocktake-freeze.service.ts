@@ -8,8 +8,8 @@ import { DatabaseService } from "../../database/database.service.js";
  * 封存窗口 = 盘点单处于 COUNTING/SUBMITTED/APPROVED(开始盘点后直到过账或取消)。
  * 差异未过账前解封会导致差异快照失效,因此提交/审批中同样保持封存。
  *
- * 接入点:调拨建单/锁定/发出/接收、采购扫码收货;
- * 未来的销售出库、个人库领用等一切库存变动同样必须先过此检查。
+ * 接入点:调拨建单/锁定/发出/接收、采购扫码收货、个人库存领用/归还/转交;
+ * 未来的销售出库等一切库存变动同样必须先过此检查。
  */
 @Injectable()
 export class StocktakeFreezeService {

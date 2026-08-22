@@ -129,6 +129,27 @@ enum StocktakeDifferenceType {
   UNEXPECTED
 }
 
+/// 个人库存单据类型(AC-F-007):领用公共库→个人仓;归还个人仓→公共库;转交个人仓→他人个人仓
+enum PersonalStockType {
+  ISSUE
+  RETURN
+  HANDOVER
+}
+
+/// 个人库存单据状态:提交即锁库,接收方确认后落位(归还/转交必须握手)
+enum PersonalStockStatus {
+  DRAFT
+  SUBMITTED
+  CONFIRMED
+  CANCELLED
+}
+
+enum PersonalStockLineStatus {
+  PENDING
+  LOCKED
+  DONE
+}
+
 enum CatalogClassificationStatus {
   PENDING
   CONFIRMED
@@ -185,6 +206,8 @@ model Employee {
   account            UserAccount?
   responsibleSerials SerialItem[]
   ownedCustomers     Customer[]
+  personalStockFrom  PersonalStockOrder[] @relation("PersonalStockFromEmployee")
+  personalStockTo    PersonalStockOrder[] @relation("PersonalStockToEmployee")
   createdAt          DateTime       @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime       @updatedAt @db.Timestamptz(3)
 
@@ -289,6 +312,7 @@ model Sku {
   serials            SerialItem[]
   movements          InventoryMovement[]
   transferLines      TransferLine[]
+  personalStockLines PersonalStockLine[]
   purchaseLines      PurchaseLine[]
   importedRows       CatalogImportRow[]    @relation("ImportedSku")
   createdAt          DateTime              @default(now()) @db.Timestamptz(3)
@@ -402,6 +426,8 @@ model Warehouse {
   transfersIn       TransferOrder[]     @relation("TransferTo")
   purchaseOrders    PurchaseOrder[]     @relation("PurchaseReceiving")
   stocktakes        StocktakeOrder[]
+  personalStockFrom PersonalStockOrder[] @relation("PersonalStockFrom")
+  personalStockTo   PersonalStockOrder[] @relation("PersonalStockTo")
   createdAt         DateTime            @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime            @updatedAt @db.Timestamptz(3)
 
@@ -520,6 +546,57 @@ model TransferLine {
   @@index([transferId, status])
 }
 
+/// 个人库存单据:领用/归还/转交。提交即锁库,确认后写流水并落位。
+/// 归还由库管确认,转交由接收员工确认(AC-F-007 接收方握手)。
+/// 操作人字段存 UserAccount.id,不建外键(与调拨约定一致)。
+model PersonalStockOrder {
+  id              String              @id @default(uuid()) @db.Uuid
+  code            String              @unique
+  type            PersonalStockType
+  status          PersonalStockStatus @default(DRAFT)
+  fromWarehouseId String              @db.Uuid
+  toWarehouseId   String              @db.Uuid
+  fromEmployeeId  String?             @db.Uuid
+  toEmployeeId    String?             @db.Uuid
+  remark          String?
+  createdById     String              @db.Uuid
+  submittedAt     DateTime?           @db.Timestamptz(3)
+  confirmedById   String?             @db.Uuid
+  confirmedAt     DateTime?           @db.Timestamptz(3)
+  cancelledAt     DateTime?           @db.Timestamptz(3)
+  fromWarehouse   Warehouse           @relation("PersonalStockFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse     Warehouse           @relation("PersonalStockTo", fields: [toWarehouseId], references: [id])
+  fromEmployee    Employee?           @relation("PersonalStockFromEmployee", fields: [fromEmployeeId], references: [id])
+  toEmployee      Employee?           @relation("PersonalStockToEmployee", fields: [toEmployeeId], references: [id])
+  lines           PersonalStockLine[]
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @db.Timestamptz(3)
+
+  @@index([status, createdAt])
+  @@index([type, status])
+  @@index([fromEmployeeId, status])
+  @@index([toEmployeeId, status])
+}
+
+model PersonalStockLine {
+  id               String                  @id @default(uuid()) @db.Uuid
+  orderId          String                  @db.Uuid
+  serialId         String                  @db.Uuid
+  skuId            String                  @db.Uuid
+  status           PersonalStockLineStatus @default(PENDING)
+  /// 提交锁库前的序列号状态,取消时原样恢复(期初个人仓可能仍是 NORMAL)
+  lockedFromStatus SerialStatus?
+  order            PersonalStockOrder      @relation(fields: [orderId], references: [id])
+  serial           SerialItem              @relation(fields: [serialId], references: [id])
+  sku              Sku                     @relation(fields: [skuId], references: [id])
+  createdAt        DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime                @updatedAt @db.Timestamptz(3)
+
+  @@unique([orderId, serialId])
+  @@index([serialId, status])
+  @@index([orderId, status])
+}
+
 model SerialItem {
   id                    String              @id @default(uuid()) @db.Uuid
   skuId                 String              @db.Uuid
@@ -536,6 +613,7 @@ model SerialItem {
   responsibleEmployee   Employee?           @relation(fields: [responsibleEmployeeId], references: [id])
   movements             InventoryMovement[]
   transferLines         TransferLine[]
+  personalStockLines    PersonalStockLine[]
   createdAt             DateTime            @default(now()) @db.Timestamptz(3)
   updatedAt             DateTime            @updatedAt @db.Timestamptz(3)
 

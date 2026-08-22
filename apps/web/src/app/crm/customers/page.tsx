@@ -7,7 +7,13 @@ export const metadata: Metadata = {
     "统一客户档案:建档去重识别、回访记录与到期提醒(AC-F-015/016);手机号脱敏保护",
 };
 
-export default function CustomersPage() {
+export default async function CustomersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ new?: string }>;
+}) {
+  // 顶栏「新建业务」快捷入口:?new=1 直接打开建档表单
+  const autoCreate = (await searchParams).new === "1";
   return (
     <main className="catalog-page">
       <header className="page-heading catalog-header">
@@ -31,7 +37,7 @@ export default function CustomersPage() {
           </span>
         </div>
       </header>
-      <CustomersManager />
+      <CustomersManager autoCreate={autoCreate} />
     </main>
   );
 }

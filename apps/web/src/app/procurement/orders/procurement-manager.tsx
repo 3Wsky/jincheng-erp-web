@@ -13,7 +13,8 @@ import {
   type Supplier,
   type WarehouseOverviewItem,
 } from "@jincheng/contracts";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useToast } from "@/components/ui/feedback";
 
 const PAGE_SIZE = 20;
 
@@ -143,7 +144,8 @@ function formatAmount(value: string): string {
   return `¥${value}`;
 }
 
-export function ProcurementManager() {
+export function ProcurementManager({ autoCreate = false }: { autoCreate?: boolean }) {
+  const toast = useToast();
   // ---- 列表状态 ----
   const [list, setList] = useState<PurchaseOrderList | null>(null);
   const [statusFilter, setStatusFilter] = useState<
@@ -244,9 +246,9 @@ export function ProcurementManager() {
     }
   }, []);
 
-  /** 执行状态机命令并刷新详情与列表 */
+  /** 执行状态机命令并刷新详情与列表(successMessage 用于成功后的全局提示) */
   const runCommand = useCallback(
-    async (key: string, path: string, body?: unknown) => {
+    async (key: string, path: string, body?: unknown, successMessage?: string) => {
       if (!detail) return;
       setBusy(key);
       setActionError(null);
@@ -265,13 +267,14 @@ export function ProcurementManager() {
         setPayNote("");
         setImeiText("");
         refresh();
+        if (successMessage) toast.success(successMessage);
       } catch (commandError) {
         setActionError(messageOf(commandError));
       } finally {
         setBusy(null);
       }
     },
-    [detail, refresh],
+    [detail, refresh, toast],
   );
 
   /** 打开新建面板时加载供应商与仓库 */
@@ -298,6 +301,15 @@ export function ProcurementManager() {
       setCreateError(messageOf(loadError));
     }
   }, []);
+
+  // 顶栏「新建业务」入口:?new=1 到达时直接打开新建抽屉(仅首次)
+  const autoCreateDone = useRef(false);
+  useEffect(() => {
+    if (!autoCreate || autoCreateDone.current) return;
+    autoCreateDone.current = true;
+    const handle = window.setTimeout(() => void openCreate(), 0);
+    return () => window.clearTimeout(handle);
+  }, [autoCreate, openCreate]);
 
   /** SKU 搜索(防抖,复用货品中心接口;清空搜索词时同步清空候选) */
   useEffect(() => {
@@ -368,12 +380,13 @@ export function ProcurementManager() {
       setNewSupplierCode("");
       setNewSupplierName("");
       setNewSupplierPhone("");
+      toast.success(`供应商「${payload.name}」已创建`);
     } catch (submitError) {
       setCreateError(messageOf(submitError));
     } finally {
       setBusy(null);
     }
-  }, [newSupplierCode, newSupplierName, newSupplierPhone]);
+  }, [newSupplierCode, newSupplierName, newSupplierPhone, toast]);
 
   /** 校验明细行输入是否合法 */
   const lineIssue = (line: DraftLine): string | null => {
@@ -424,12 +437,13 @@ export function ProcurementManager() {
       refresh();
       setDetail(payload);
       setDetailOpen(true);
+      toast.success("采购单已创建");
     } catch (submitError) {
       setCreateError(messageOf(submitError));
     } finally {
       setBusy(null);
     }
-  }, [supplierId, warehouseId, remark, draftLines, refresh]);
+  }, [supplierId, warehouseId, remark, draftLines, refresh, toast]);
 
   /** 提交扫码收货(textarea 一行一个 IMEI,按选中行提交) */
   const submitReceipt = useCallback(() => {
@@ -442,9 +456,12 @@ export function ProcurementManager() {
       ),
     ];
     if (!receiptLineId || imeis.length === 0) return;
-    void runCommand("receipt", "/receipts", {
-      items: [{ purchaseLineId: receiptLineId, imeis }],
-    });
+    void runCommand(
+      "receipt",
+      "/receipts",
+      { items: [{ purchaseLineId: receiptLineId, imeis }] },
+      `已收货 ${imeis.length} 台入库`,
+    );
   }, [imeiText, receiptLineId, runCommand]);
 
   const isCompleted = Boolean(detail?.completedAt);
@@ -979,7 +996,9 @@ export function ProcurementManager() {
                         className="button primary"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("submit", "/submit")}
+                        onClick={() =>
+                          void runCommand("submit", "/submit", undefined, "采购单已提交审批")
+                        }
                       >
                         提交审批
                       </button>
@@ -987,7 +1006,9 @@ export function ProcurementManager() {
                         className="button secondary"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("cancel", "/cancel")}
+                        onClick={() =>
+                          void runCommand("cancel", "/cancel", undefined, "采购单已取消")
+                        }
                       >
                         取消
                       </button>
@@ -999,7 +1020,9 @@ export function ProcurementManager() {
                         className="button primary"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("approve", "/approve")}
+                        onClick={() =>
+                          void runCommand("approve", "/approve", undefined, "采购单审批通过")
+                        }
                       >
                         审批通过
                       </button>
@@ -1015,7 +1038,9 @@ export function ProcurementManager() {
                         className="button ghost"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("cancel", "/cancel")}
+                        onClick={() =>
+                          void runCommand("cancel", "/cancel", undefined, "采购单已撤回")
+                        }
                       >
                         撤回
                       </button>
@@ -1026,7 +1051,9 @@ export function ProcurementManager() {
                       className="button primary"
                       disabled={busy !== null}
                       type="button"
-                      onClick={() => void runCommand("complete", "/complete")}
+                      onClick={() =>
+                        void runCommand("complete", "/complete", undefined, "采购单已完成")
+                      }
                     >
                       完成采购单
                     </button>
@@ -1046,9 +1073,12 @@ export function ProcurementManager() {
                       disabled={busy !== null || rejectReason.trim() === ""}
                       type="button"
                       onClick={() =>
-                        void runCommand("reject", "/reject", {
-                          reason: rejectReason.trim(),
-                        })
+                        void runCommand(
+                          "reject",
+                          "/reject",
+                          { reason: rejectReason.trim() },
+                          "采购单已驳回",
+                        )
                       }
                     >
                       确认拒绝
@@ -1092,11 +1122,16 @@ export function ProcurementManager() {
                         }
                         type="button"
                         onClick={() =>
-                          void runCommand("payment", "/payments", {
-                            amount: payAmount.trim(),
-                            method: payMethod,
-                            note: payNote.trim() || undefined,
-                          })
+                          void runCommand(
+                            "payment",
+                            "/payments",
+                            {
+                              amount: payAmount.trim(),
+                              method: payMethod,
+                              note: payNote.trim() || undefined,
+                            },
+                            "付款已登记",
+                          )
                         }
                       >
                         登记付款

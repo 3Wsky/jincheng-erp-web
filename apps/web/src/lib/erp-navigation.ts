@@ -46,6 +46,7 @@ export const navigationGroups: NavigationGroup[] = [
     items: [
       { label: "货品中心", href: "/catalog/products", icon: "catalog", badge: "可用", status: "ready" },
       { label: "库存管理", href: "/inventory", icon: "inventory", badge: "可用", status: "ready" },
+      { label: "个人库存", href: "/inventory/personal", icon: "inventory", badge: "可用", status: "ready" },
       { label: "盘点管理", href: "/inventory/stocktakes", icon: "inventory", badge: "可用", status: "ready" },
       { label: "采购管理", href: "/procurement/orders", icon: "procurement", badge: "可用", status: "ready" },
       { label: "调拨管理", href: "/transfers", icon: "transfer", badge: "可用", status: "ready" },

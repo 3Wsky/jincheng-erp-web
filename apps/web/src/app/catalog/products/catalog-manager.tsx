@@ -7,6 +7,7 @@ import {
   type CatalogProduct,
 } from "@jincheng/contracts";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useToast } from "@/components/ui/feedback";
 
 interface OrganizationOption {
   id: string;
@@ -35,6 +36,7 @@ const emptyProductForm = {
 };
 
 export function CatalogManager() {
+  const toast = useToast();
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [imports, setImports] = useState<CatalogImportBatch[]>([]);
   const [organizations, setOrganizations] = useState<OrganizationOption[]>([]);
@@ -45,7 +47,6 @@ export function CatalogManager() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [productForm, setProductForm] = useState(emptyProductForm);
 
@@ -103,9 +104,9 @@ export function CatalogManager() {
   async function runAction(key: string, action: () => Promise<string>) {
     setBusy(key);
     setError(null);
-    setNotice(null);
     try {
-      setNotice(await action());
+      // 写操作成功后统一走全局 toast,替代原先的内联成功横幅
+      toast.success(await action());
       await load();
     } catch (actionError) {
       setError(messageOf(actionError));
@@ -221,7 +222,6 @@ export function CatalogManager() {
       </section>
 
       {error ? <div className="alert error">{error}</div> : null}
-      {notice ? <div className="alert success">{notice}</div> : null}
 
       <section className="metric-grid" aria-label="货品摘要">
         <Metric label="当前页商品" value={counts.products} />

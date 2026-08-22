@@ -8,6 +8,7 @@ import {
   type WarehouseSerialItem,
 } from "@jincheng/contracts";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Drawer } from "@/components/ui/drawer";
 
 /** 公司类仓库类型(总仓/门店/售后/异常) */
 const COMPANY_TYPES = ["COMPANY", "STORE", "AFTER_SALES", "ABNORMAL"];
@@ -444,12 +445,7 @@ export function InventoryOverview() {
 
       {/* 仓库详情抽屉:点击卡片打开 */}
       {selected ? (
-        <div className="drawer-overlay" onClick={() => setSelected(null)} role="presentation">
-          <aside
-            aria-label="仓库详情"
-            className="warehouse-drawer"
-            onClick={(event) => event.stopPropagation()}
-          >
+        <Drawer ariaLabel="仓库详情" onClose={() => setSelected(null)}>
             <header className="drawer-head">
               <div>
                 <h2>{selected.name}</h2>
@@ -539,8 +535,7 @@ export function InventoryOverview() {
                 </table>
               </div>
             )}
-          </aside>
-        </div>
+        </Drawer>
       ) : null}
     </div>
   );

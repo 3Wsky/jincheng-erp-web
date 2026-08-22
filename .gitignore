@@ -24,5 +24,9 @@ scripts/grasp/*.png
 progress-report.html
 progress-report.json
 
+# Python 缓存
+__pycache__/
+*.py[cod]
+
 # IDE 本地配置(含本机路径,不入库)
 .cursor/

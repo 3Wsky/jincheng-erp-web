@@ -13,6 +13,7 @@ import {
   type Store,
 } from "@jincheng/contracts";
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { useToast } from "@/components/ui/feedback";
 
 type EmployeeStatusFilter = "" | "ACTIVE" | "LEAVING" | "INACTIVE";
 
@@ -83,6 +84,7 @@ function suggestPersonalWarehouseId(
 }
 
 export function OrganizationManager() {
+  const toast = useToast();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState("");
@@ -100,7 +102,6 @@ export function OrganizationManager() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [showCreateOrg, setShowCreateOrg] = useState(false);
   const [showCreateStore, setShowCreateStore] = useState(false);
   const [showCreateEmployee, setShowCreateEmployee] = useState(false);
@@ -211,9 +212,9 @@ export function OrganizationManager() {
   async function runAction(key: string, action: () => Promise<string>) {
     setBusy(key);
     setError(null);
-    setNotice(null);
     try {
-      setNotice(await action());
+      // 写操作成功后统一走全局 toast,替代原先的内联成功横幅
+      toast.success(await action());
       await reload();
     } catch (actionError) {
       setError(messageOf(actionError));
@@ -307,7 +308,6 @@ export function OrganizationManager() {
   return (
     <div className="catalog-workspace">
       {error ? <div className="alert error">{error}</div> : null}
-      {notice ? <div className="alert success">{notice}</div> : null}
 
       <section className="metric-grid" aria-label="组织摘要">
         <Metric label="组织" value={organizations.length} />

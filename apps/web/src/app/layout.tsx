@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ErpShell } from "@/components/erp-shell";
+import { FeedbackProvider } from "@/components/ui/feedback";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,7 +17,9 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body>
-        <ErpShell>{children}</ErpShell>
+        <FeedbackProvider>
+          <ErpShell>{children}</ErpShell>
+        </FeedbackProvider>
       </body>
     </html>
   );

@@ -12,7 +12,8 @@ import {
   type WarehouseOverviewItem,
   type WarehouseSerialItem,
 } from "@jincheng/contracts";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useToast } from "@/components/ui/feedback";
 
 const PAGE_SIZE = 20;
 
@@ -77,7 +78,8 @@ function formatDateTime(value: string | null): string {
   });
 }
 
-export function StocktakeManager() {
+export function StocktakeManager({ autoCreate = false }: { autoCreate?: boolean }) {
+  const toast = useToast();
   const [list, setList] = useState<StocktakeList | null>(null);
   const [statusFilter, setStatusFilter] = useState<StocktakeStatusValue | "">("");
   const [page, setPage] = useState(1);
@@ -160,9 +162,9 @@ export function StocktakeManager() {
     }
   }, []);
 
-  /** 执行状态机命令(返回详情) */
+  /** 执行状态机命令(返回详情;successMessage 为成功后的全局提示文案) */
   const runCommand = useCallback(
-    async (key: string, path: string, body?: unknown) => {
+    async (key: string, path: string, body?: unknown, successMessage?: string) => {
       if (!detail) return;
       setBusy(key);
       setActionError(null);
@@ -178,13 +180,14 @@ export function StocktakeManager() {
         setShowReject(false);
         setRejectReason("");
         refresh();
+        if (successMessage) toast.success(successMessage);
       } catch (commandError) {
         setActionError(messageOf(commandError));
       } finally {
         setBusy(null);
       }
     },
-    [detail, refresh],
+    [detail, refresh, toast],
   );
 
   /** 盘点中自动加载账面清单(对照勾选用;封存期间账面不变,按单据 id 只拉一次) */
@@ -345,6 +348,15 @@ export function StocktakeManager() {
     }
   }, []);
 
+  // 顶栏「新建业务」入口:?new=1 到达时直接打开新建盘点抽屉(仅首次)
+  const autoCreateDone = useRef(false);
+  useEffect(() => {
+    if (!autoCreate || autoCreateDone.current) return;
+    autoCreateDone.current = true;
+    const handle = window.setTimeout(() => void openCreate(), 0);
+    return () => window.clearTimeout(handle);
+  }, [autoCreate, openCreate]);
+
   const createStocktake = useCallback(async () => {
     setBusy("create");
     setCreateError(null);
@@ -363,12 +375,13 @@ export function StocktakeManager() {
       refresh();
       setDetail(payload);
       setDetailOpen(true);
+      toast.success("盘点单已创建");
     } catch (submitError) {
       setCreateError(messageOf(submitError));
     } finally {
       setBusy(null);
     }
-  }, [warehouseId, remark, refresh]);
+  }, [warehouseId, remark, refresh, toast]);
 
   const missingCount = detail
     ? detail.differences.filter((difference) => difference.type === "MISSING")
@@ -674,7 +687,14 @@ export function StocktakeManager() {
                         className="button primary"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("start", "/start")}
+                        onClick={() =>
+                          void runCommand(
+                            "start",
+                            "/start",
+                            undefined,
+                            "已开始盘点，仓库已封存",
+                          )
+                        }
                       >
                         开始盘点（封存仓库）
                       </button>
@@ -682,7 +702,14 @@ export function StocktakeManager() {
                         className="button secondary"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("cancel", "/cancel")}
+                        onClick={() =>
+                          void runCommand(
+                            "cancel",
+                            "/cancel",
+                            undefined,
+                            "盘点已取消",
+                          )
+                        }
                       >
                         取消
                       </button>
@@ -694,7 +721,14 @@ export function StocktakeManager() {
                         className="button primary"
                         disabled={busy !== null || detail.scanCount === 0}
                         type="button"
-                        onClick={() => void runCommand("submit", "/submit")}
+                        onClick={() =>
+                          void runCommand(
+                            "submit",
+                            "/submit",
+                            undefined,
+                            "盘点差异已提交，等待审批",
+                          )
+                        }
                       >
                         提交盘点（计算差异）
                       </button>
@@ -702,7 +736,14 @@ export function StocktakeManager() {
                         className="button ghost"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("cancel", "/cancel")}
+                        onClick={() =>
+                          void runCommand(
+                            "cancel",
+                            "/cancel",
+                            undefined,
+                            "盘点已取消，仓库解封",
+                          )
+                        }
                       >
                         取消盘点（解封）
                       </button>
@@ -714,7 +755,14 @@ export function StocktakeManager() {
                         className="button primary"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("approve", "/approve")}
+                        onClick={() =>
+                          void runCommand(
+                            "approve",
+                            "/approve",
+                            undefined,
+                            "盘点已审批通过",
+                          )
+                        }
                       >
                         审批通过
                       </button>
@@ -733,7 +781,14 @@ export function StocktakeManager() {
                       className="button primary"
                       disabled={busy !== null}
                       type="button"
-                      onClick={() => void runCommand("post", "/post")}
+                      onClick={() =>
+                        void runCommand(
+                          "post",
+                          "/post",
+                          undefined,
+                          "差异已过账，仓库解封",
+                        )
+                      }
                     >
                       过账（盘亏转异常并解封）
                     </button>
@@ -753,9 +808,12 @@ export function StocktakeManager() {
                       disabled={busy !== null || rejectReason.trim() === ""}
                       type="button"
                       onClick={() =>
-                        void runCommand("reject", "/reject", {
-                          reason: rejectReason.trim(),
-                        })
+                        void runCommand(
+                          "reject",
+                          "/reject",
+                          { reason: rejectReason.trim() },
+                          "已驳回，请重新盘点",
+                        )
                       }
                     >
                       确认驳回

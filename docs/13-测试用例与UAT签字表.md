@@ -67,6 +67,10 @@
 | TC-ORG-003  | 重复执行“从门店仓生成门店”                   | 首次按 STORE 类仓库建店并回链；重跑不重复建店；个人/总仓/售后不参与 | AC-F-001、数据一致性 5 |
 | TC-ORG-004  | 销售账号划分门店+仓库（单元测试 sales-assignment.spec） | 内置 SALES 与自定义 sales:write 须划分地点；ADMIN 不强制；缺门店/仓库有明确错误；同名个人仓可预勾 | AC-F-001~002           |
 | TC-ORG-005  | 钱账分离兼任拦截（单元测试 role-boundaries.spec） | 自定义角色同勾单据写入+付款执行 422；财务+出纳同挂一个账号 422（点名冲突角色）；ADMIN 技术兜底不受限；`/roles/{id}/accounts` 可核对角色持有人 | AC-F-002               |
+| TC-PST-001  | 个人库存可见范围与单号（单元测试 personal-stock.service.spec） | 管理员/组织范围→ORGANIZATION；店长/STORE→STORE；销售 SELF→SELF；单号 PST-YYYYMMDD-XXXX | AC-F-007               |
+| TC-PST-002  | 个人库存接口鉴权装配（单元测试 personal-stock.controller.spec） | 全部接口登录 + inventory:read；确认细规则在服务层 | AC-F-002、007          |
+| TC-PST-003  | 领用握手：公共库→个人仓                         | 建单→提交锁库→库管确认后设备进入个人仓且 status=PERSONAL，写 PERSONAL_ISSUE 流水；销售只看本人仓 | AC-F-007               |
+| TC-PST-004  | 归还/转交接收方确认与取消解锁                   | 归还须库管确认落回公共库 NORMAL；转交须接收方本人确认；SUBMITTED 取消恢复锁库前状态 | AC-F-007               |
 
 ## 4. 用例记录模板
 

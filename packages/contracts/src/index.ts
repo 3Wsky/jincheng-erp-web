@@ -1057,3 +1057,153 @@ export type FollowupRecordItem = z.infer<typeof FollowupRecordItemSchema>;
 export type CustomerIdentityItem = z.infer<typeof CustomerIdentityItemSchema>;
 export type CustomerDetail = z.infer<typeof CustomerDetailSchema>;
 export type CustomerDuplicate = z.infer<typeof CustomerDuplicateSchema>;
+
+// ---- 个人库存(AC-F-007:领用/归还/转交握手) ----
+
+export const PersonalStockTypeSchema = z.enum(["ISSUE", "RETURN", "HANDOVER"]);
+export const PersonalStockStatusSchema = z.enum([
+  "DRAFT",
+  "SUBMITTED",
+  "CONFIRMED",
+  "CANCELLED",
+]);
+export const PersonalStockLineStatusSchema = z.enum([
+  "PENDING",
+  "LOCKED",
+  "DONE",
+]);
+export const PersonalStockScopeSchema = z.enum([
+  "SELF",
+  "STORE",
+  "ORGANIZATION",
+]);
+
+export const PersonalStockWarehouseSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  name: z.string(),
+  type: WarehouseTypeSchema,
+});
+
+export const PersonalStockListItemSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  type: PersonalStockTypeSchema,
+  status: PersonalStockStatusSchema,
+  fromWarehouse: PersonalStockWarehouseSchema,
+  toWarehouse: PersonalStockWarehouseSchema,
+  fromEmployeeName: z.string().nullable(),
+  toEmployeeName: z.string().nullable(),
+  lineCount: z.number().int().nonnegative(),
+  remark: z.string().nullable(),
+  createdByName: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  submittedAt: z.iso.datetime().nullable(),
+  confirmedAt: z.iso.datetime().nullable(),
+});
+
+export const PersonalStockListSchema = z.object({
+  items: z.array(PersonalStockListItemSchema),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+});
+
+export const PersonalStockLineSchema = z.object({
+  id: z.uuid(),
+  serialId: z.uuid(),
+  imeiPrimary: z.string(),
+  serialNumber: z.string().nullable(),
+  serialStatus: SerialStatusSchema,
+  skuCode: z.string(),
+  skuName: z.string(),
+  productBrand: z.string().nullable(),
+  productModel: z.string().nullable(),
+  status: PersonalStockLineStatusSchema,
+});
+
+export const PersonalStockDetailSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  type: PersonalStockTypeSchema,
+  status: PersonalStockStatusSchema,
+  fromWarehouse: PersonalStockWarehouseSchema,
+  toWarehouse: PersonalStockWarehouseSchema,
+  fromEmployeeId: z.uuid().nullable(),
+  fromEmployeeName: z.string().nullable(),
+  toEmployeeId: z.uuid().nullable(),
+  toEmployeeName: z.string().nullable(),
+  remark: z.string().nullable(),
+  createdByName: z.string().nullable(),
+  confirmedByName: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  submittedAt: z.iso.datetime().nullable(),
+  confirmedAt: z.iso.datetime().nullable(),
+  cancelledAt: z.iso.datetime().nullable(),
+  lines: z.array(PersonalStockLineSchema),
+});
+
+export const PersonalStockMineItemSchema = z.object({
+  id: z.uuid(),
+  imeiPrimary: z.string(),
+  serialNumber: z.string().nullable(),
+  status: SerialStatusSchema,
+  skuCode: z.string(),
+  skuName: z.string(),
+  productBrand: z.string().nullable(),
+  productModel: z.string().nullable(),
+  warehouseId: z.uuid(),
+  warehouseName: z.string(),
+  ownerEmployeeId: z.uuid().nullable(),
+  ownerEmployeeName: z.string().nullable(),
+  receivedAt: z.iso.datetime(),
+});
+
+export const PersonalStockLocationSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  type: WarehouseTypeSchema,
+  ownerEmployeeId: z.uuid().nullable(),
+  ownerEmployeeName: z.string().nullable(),
+  storeName: z.string().nullable(),
+  serialCount: z.number().int().nonnegative(),
+});
+
+export const PersonalStockHandoverTargetSchema = z.object({
+  employeeId: z.uuid(),
+  employeeName: z.string(),
+  warehouseId: z.uuid(),
+  warehouseName: z.string(),
+  storeName: z.string().nullable(),
+});
+
+export const PersonalStockMineSchema = z.object({
+  scope: PersonalStockScopeSchema,
+  myPersonalWarehouseId: z.uuid().nullable(),
+  warehouses: z.array(PersonalStockLocationSchema),
+  publicWarehouses: z.array(PersonalStockLocationSchema),
+  handoverTargets: z.array(PersonalStockHandoverTargetSchema),
+  items: z.array(PersonalStockMineItemSchema),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+});
+
+export type PersonalStockTypeValue = z.infer<typeof PersonalStockTypeSchema>;
+export type PersonalStockStatusValue = z.infer<typeof PersonalStockStatusSchema>;
+export type PersonalStockLineStatusValue = z.infer<
+  typeof PersonalStockLineStatusSchema
+>;
+export type PersonalStockScopeValue = z.infer<typeof PersonalStockScopeSchema>;
+export type PersonalStockListItem = z.infer<typeof PersonalStockListItemSchema>;
+export type PersonalStockList = z.infer<typeof PersonalStockListSchema>;
+export type PersonalStockLine = z.infer<typeof PersonalStockLineSchema>;
+export type PersonalStockDetail = z.infer<typeof PersonalStockDetailSchema>;
+export type PersonalStockMineItem = z.infer<typeof PersonalStockMineItemSchema>;
+export type PersonalStockLocation = z.infer<typeof PersonalStockLocationSchema>;
+export type PersonalStockHandoverTarget = z.infer<
+  typeof PersonalStockHandoverTargetSchema
+>;
+export type PersonalStockMine = z.infer<typeof PersonalStockMineSchema>;

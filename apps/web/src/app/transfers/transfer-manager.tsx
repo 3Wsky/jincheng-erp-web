@@ -12,7 +12,8 @@ import {
   type WarehouseOverviewItem,
   type WarehouseSerialItem,
 } from "@jincheng/contracts";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useToast } from "@/components/ui/feedback";
 
 const PAGE_SIZE = 20;
 
@@ -113,7 +114,8 @@ function productLabel(brand: string | null, model: string | null): string {
   return parts.join(" ") || "—";
 }
 
-export function TransferManager() {
+export function TransferManager({ autoCreate = false }: { autoCreate?: boolean }) {
+  const toast = useToast();
   // ---- 列表状态 ----
   const [list, setList] = useState<TransferList | null>(null);
   const [statusFilter, setStatusFilter] = useState<TransferStatusValue | "">("");
@@ -208,9 +210,9 @@ export function TransferManager() {
     }
   }, []);
 
-  /** 执行状态机命令并刷新详情与列表 */
+  /** 执行状态机命令并刷新详情与列表(successMessage 用于成功后的全局提示) */
   const runCommand = useCallback(
-    async (key: string, path: string, body?: unknown) => {
+    async (key: string, path: string, body?: unknown, successMessage?: string) => {
       if (!detail) return;
       setBusy(key);
       setActionError(null);
@@ -230,13 +232,14 @@ export function TransferManager() {
         setRejectReason("");
         setExceptionNote("");
         refresh();
+        if (successMessage) toast.success(successMessage);
       } catch (commandError) {
         setActionError(messageOf(commandError));
       } finally {
         setBusy(null);
       }
     },
-    [detail, refresh],
+    [detail, refresh, toast],
   );
 
   /** 打开新建面板时加载仓库列表 */
@@ -258,6 +261,15 @@ export function TransferManager() {
       setCreateError(messageOf(loadError));
     }
   }, []);
+
+  // 顶栏「新建业务」入口:?new=1 到达时直接打开新建抽屉(仅首次)
+  const autoCreateDone = useRef(false);
+  useEffect(() => {
+    if (!autoCreate || autoCreateDone.current) return;
+    autoCreateDone.current = true;
+    const handle = window.setTimeout(() => void openCreate(), 0);
+    return () => window.clearTimeout(handle);
+  }, [autoCreate, openCreate]);
 
   /** 调出仓设备搜索(防抖) */
   useEffect(() => {
@@ -315,12 +327,13 @@ export function TransferManager() {
       refresh();
       setDetail(payload);
       setDetailOpen(true);
+      toast.success("调拨单已创建");
     } catch (submitError) {
       setCreateError(messageOf(submitError));
     } finally {
       setBusy(null);
     }
-  }, [fromWarehouseId, toWarehouseId, picked, remark, refresh]);
+  }, [fromWarehouseId, toWarehouseId, picked, remark, refresh, toast]);
 
   const toggleChecked = useCallback((serialId: string) => {
     setCheckedSerials((current) => {
@@ -762,7 +775,9 @@ export function TransferManager() {
                         className="button primary"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("submit", "/submit")}
+                        onClick={() =>
+                          void runCommand("submit", "/submit", undefined, "调拨单已提交审批")
+                        }
                       >
                         提交申请
                       </button>
@@ -770,7 +785,9 @@ export function TransferManager() {
                         className="button secondary"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("cancel", "/cancel")}
+                        onClick={() =>
+                          void runCommand("cancel", "/cancel", undefined, "调拨单已取消")
+                        }
                       >
                         取消
                       </button>
@@ -782,7 +799,9 @@ export function TransferManager() {
                         className="button primary"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("approve", "/approve")}
+                        onClick={() =>
+                          void runCommand("approve", "/approve", undefined, "调拨单审批通过")
+                        }
                       >
                         审批通过
                       </button>
@@ -798,7 +817,9 @@ export function TransferManager() {
                         className="button ghost"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("cancel", "/cancel")}
+                        onClick={() =>
+                          void runCommand("cancel", "/cancel", undefined, "调拨单已撤回")
+                        }
                       >
                         撤回
                       </button>
@@ -810,7 +831,9 @@ export function TransferManager() {
                         className="button primary"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("lock", "/lock")}
+                        onClick={() =>
+                          void runCommand("lock", "/lock", undefined, "锁库完成，来源库存已锁定")
+                        }
                       >
                         锁定来源库存
                       </button>
@@ -818,7 +841,9 @@ export function TransferManager() {
                         className="button ghost"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("cancel", "/cancel")}
+                        onClick={() =>
+                          void runCommand("cancel", "/cancel", undefined, "调拨单已撤销")
+                        }
                       >
                         撤销单据
                       </button>
@@ -830,7 +855,9 @@ export function TransferManager() {
                         className="button primary"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("ship", "/ship")}
+                        onClick={() =>
+                          void runCommand("ship", "/ship", undefined, "调拨单已发出，货物在途")
+                        }
                       >
                         确认发出
                       </button>
@@ -838,7 +865,9 @@ export function TransferManager() {
                         className="button secondary"
                         disabled={busy !== null}
                         type="button"
-                        onClick={() => void runCommand("unlock", "/unlock")}
+                        onClick={() =>
+                          void runCommand("unlock", "/unlock", undefined, "已解锁退回，库存已释放")
+                        }
                       >
                         解锁退回（释放库存）
                       </button>
@@ -888,9 +917,12 @@ export function TransferManager() {
                         disabled={busy !== null || checkedSerials.size === 0}
                         type="button"
                         onClick={() =>
-                          void runCommand("receive", "/receive", {
-                            serialIds: [...checkedSerials],
-                          })
+                          void runCommand(
+                            "receive",
+                            "/receive",
+                            { serialIds: [...checkedSerials] },
+                            `已确认接收 ${checkedSerials.size} 台`,
+                          )
                         }
                       >
                         接收选中（{checkedSerials.size}）
@@ -910,7 +942,9 @@ export function TransferManager() {
                       className="button primary"
                       disabled={busy !== null}
                       type="button"
-                      onClick={() => void runCommand("complete", "/complete")}
+                      onClick={() =>
+                        void runCommand("complete", "/complete", undefined, "调拨单已完成")
+                      }
                     >
                       对账完成
                     </button>
@@ -930,9 +964,12 @@ export function TransferManager() {
                       disabled={busy !== null || rejectReason.trim() === ""}
                       type="button"
                       onClick={() =>
-                        void runCommand("reject", "/reject", {
-                          reason: rejectReason.trim(),
-                        })
+                        void runCommand(
+                          "reject",
+                          "/reject",
+                          { reason: rejectReason.trim() },
+                          "调拨单已驳回",
+                        )
                       }
                     >
                       确认拒绝
@@ -967,13 +1004,18 @@ export function TransferManager() {
                       disabled={busy !== null || checkedSerials.size === 0}
                       type="button"
                       onClick={() =>
-                        void runCommand("exception", "/exceptions", {
-                          exceptions: [...checkedSerials].map((serialId) => ({
-                            serialId,
-                            type: exceptionType,
-                            note: exceptionNote.trim() || undefined,
-                          })),
-                        })
+                        void runCommand(
+                          "exception",
+                          "/exceptions",
+                          {
+                            exceptions: [...checkedSerials].map((serialId) => ({
+                              serialId,
+                              type: exceptionType,
+                              note: exceptionNote.trim() || undefined,
+                            })),
+                          },
+                          `已登记 ${checkedSerials.size} 台差异`,
+                        )
                       }
                     >
                       对选中 {checkedSerials.size} 台登记差异

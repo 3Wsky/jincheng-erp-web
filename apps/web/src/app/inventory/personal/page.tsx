@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
-import { TransferManager } from "./transfer-manager";
+import { PersonalStockManager } from "./personal-stock-manager";
 
 export const metadata: Metadata = {
-  title: "调拨管理",
+  title: "个人库存",
   description:
-    "仓库间序列号商品调拨:双向握手状态机、锁库、在途与扫码接收(AC-F-008/009)",
+    "领用、归还、转交个人库存：提交锁库、接收方确认后落位（AC-F-007）",
 };
 
-export default async function TransfersPage({
+export default async function PersonalStockPage({
   searchParams,
 }: {
   searchParams: Promise<{ new?: string }>;
@@ -21,23 +21,23 @@ export default async function TransfersPage({
           <div className="breadcrumb">
             <span>进销存</span>
             <b>/</b>
-            <strong>调拨管理</strong>
+            <strong>个人库存</strong>
           </div>
-          <h1>调拨管理</h1>
+          <h1>个人库存</h1>
           <p>
-            发出方与接收方分别确认，杜绝单边完成；库存变化全部由调拨单驱动，
-            每台设备的锁定、在途、接收与差异都有完整流水与审计。
+            公共库领用到个人仓、个人仓归还公共库、员工之间转交，都必须走单据握手。
+            提交即锁库，确认后才移仓写流水；销售只看本人，店长看本店。
           </p>
         </div>
         <div className="catalog-safety-note">
           <span className="safety-icon">✓</span>
           <span>
-            <strong>双向握手</strong>
-            <small>锁库 → 发出 → 在途 → 扫码接收 · 差异可追溯</small>
+            <strong>单据驱动</strong>
+            <small>禁止直接改仓 · 归还库管确认 · 转交接收人确认</small>
           </span>
         </div>
       </header>
-      <TransferManager autoCreate={autoCreate} />
+      <PersonalStockManager autoCreate={autoCreate} />
     </main>
   );
 }

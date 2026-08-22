@@ -11,6 +11,7 @@ import {
   type SerialStatusValue,
 } from "@jincheng/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Drawer } from "@/components/ui/drawer";
 
 const PAGE_SIZE = 20;
 /** 输入停顿多少毫秒后自动搜索 */
@@ -232,8 +233,8 @@ function SummaryCard({
   );
 }
 
-export function GlobalSearch() {
-  const [keyword, setKeyword] = useState("");
+export function GlobalSearch({ initialKeyword = "" }: { initialKeyword?: string }) {
+  const [keyword, setKeyword] = useState(initialKeyword);
   /** summary=按商品聚合(找货第一步,默认);list=逐台明细 */
   const [view, setView] = useState<"summary" | "list">("summary");
   const [skuFilter, setSkuFilter] = useState<SkuFilter | null>(null);
@@ -1006,16 +1007,7 @@ export function GlobalSearch() {
 
       {/* 单机档案抽屉:详情 + 流转时间线(AC-F-005) */}
       {detailOpen ? (
-        <div
-          className="drawer-overlay"
-          onClick={closeDetail}
-          role="presentation"
-        >
-          <aside
-            aria-label="单机档案"
-            className="warehouse-drawer"
-            onClick={(event) => event.stopPropagation()}
-          >
+        <Drawer ariaLabel="单机档案" onClose={closeDetail}>
             <header className="drawer-head">
               <div>
                 <h2 className="mono">{detail?.imeiPrimary ?? "单机档案"}</h2>
@@ -1142,8 +1134,7 @@ export function GlobalSearch() {
                 )}
               </>
             ) : null}
-          </aside>
-        </div>
+        </Drawer>
       ) : null}
     </div>
   );

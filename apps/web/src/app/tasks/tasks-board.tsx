@@ -9,6 +9,7 @@ const GROUP_ICONS: Record<string, string> = {
   transfer: "🔁",
   purchase: "🛒",
   stocktake: "📋",
+  personal: "📱",
   abnormal: "⚠️",
 };
 
@@ -91,7 +92,7 @@ export function TasksBoard() {
       <section className="panel search-guide">
         <strong>太好了，当前没有需要你处理的事项</strong>
         <small>
-          调拨、采购、盘点产生的待办会按你的岗位权限自动出现在这里。
+          调拨、采购、盘点、个人库存产生的待办会按你的岗位权限自动出现在这里。
         </small>
       </section>
     );

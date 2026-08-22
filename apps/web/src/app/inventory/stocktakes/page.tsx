@@ -7,7 +7,13 @@ export const metadata: Metadata = {
     "按仓库整仓盘点:盘点期间仓库封存(禁止调拨与出入库),差异经审批后过账(AC-F-006/007)",
 };
 
-export default function StocktakesPage() {
+export default async function StocktakesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ new?: string }>;
+}) {
+  // 顶栏「新建业务」快捷入口:?new=1 直接打开新建表单
+  const autoCreate = (await searchParams).new === "1";
   return (
     <main className="catalog-page">
       <header className="page-heading catalog-header">
@@ -31,7 +37,7 @@ export default function StocktakesPage() {
           </span>
         </div>
       </header>
-      <StocktakeManager />
+      <StocktakeManager autoCreate={autoCreate} />
     </main>
   );
 }

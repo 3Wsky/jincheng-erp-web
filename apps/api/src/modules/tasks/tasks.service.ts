@@ -132,6 +132,33 @@ export class TasksService {
       }
     }
 
+    // ---- 个人库存(AC-F-007):领用/归还待库管确认;转交待接收方确认 ----
+    if (permissions.has("inventory:write")) {
+      const pending = await this.personalStockGroup({
+        status: "SUBMITTED",
+        type: { in: ["ISSUE", "RETURN"] },
+      });
+      this.pushPersonalStock(
+        groups,
+        "personal-confirm",
+        "个人库存待确认（领用/归还）",
+        pending,
+      );
+    }
+    if (permissions.has("inventory:read") && request.user.employeeId) {
+      const handovers = await this.personalStockGroup({
+        status: "SUBMITTED",
+        type: "HANDOVER",
+        toEmployeeId: request.user.employeeId,
+      });
+      this.pushPersonalStock(
+        groups,
+        "personal-handover",
+        "个人库存转交待接收",
+        handovers,
+      );
+    }
+
     // ---- 到期回访(customer:read 可见;REQ-PEOPLE-012:next_followup_at 到期自动进待办) ----
     if (permissions.has("customer:read")) {
       const dueFollowups = await this.dueFollowups();
@@ -291,6 +318,44 @@ export class TasksService {
         id: order.id,
         code: order.code,
         title: `${order.supplier.name} · ¥${order.totalAmount.toString()}`,
+        at: order.updatedAt,
+      })),
+    });
+  }
+
+  private async personalStockGroup(where: Record<string, unknown>) {
+    const [count, items] = await Promise.all([
+      this.database.client.personalStockOrder.count({ where }),
+      this.database.client.personalStockOrder.findMany({
+        where,
+        orderBy: { updatedAt: "asc" },
+        take: ITEMS_PER_GROUP,
+        include: {
+          fromWarehouse: { select: { name: true } },
+          toWarehouse: { select: { name: true } },
+          _count: { select: { lines: true } },
+        },
+      }),
+    ]);
+    return { count, items };
+  }
+
+  private pushPersonalStock(
+    groups: TaskGroup[],
+    key: string,
+    label: string,
+    data: Awaited<ReturnType<TasksService["personalStockGroup"]>>,
+  ): void {
+    if (data.count === 0) return;
+    groups.push({
+      key,
+      label,
+      route: "/inventory/personal",
+      count: data.count,
+      items: data.items.map((order) => ({
+        id: order.id,
+        code: order.code,
+        title: `${order.fromWarehouse.name} → ${order.toWarehouse.name} · ${order._count.lines} 台`,
         at: order.updatedAt,
       })),
     });

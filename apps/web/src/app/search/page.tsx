@@ -7,7 +7,13 @@ export const metadata: Metadata = {
     "按 IMEI、SN、SKU 编码、条码、品牌与型号跨仓查找货品位置、状态与责任归属(AC-F-004/005)",
 };
 
-export default function SearchPage() {
+export default async function SearchPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
+  // 顶栏全局搜索通过 ?q= 带入关键词；key 保证新关键词到达时组件重置并立即搜索
+  const initialKeyword = (await searchParams).q?.trim() ?? "";
   return (
     <main className="catalog-page">
       <header className="page-heading catalog-header">
@@ -31,7 +37,7 @@ export default function SearchPage() {
           </span>
         </div>
       </header>
-      <GlobalSearch />
+      <GlobalSearch initialKeyword={initialKeyword} key={initialKeyword || "blank"} />
     </main>
   );
 }

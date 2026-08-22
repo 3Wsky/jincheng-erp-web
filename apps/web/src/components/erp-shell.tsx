@@ -2,15 +2,56 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { ErpIcon } from "./erp-icon";
+import { TasksBell } from "./tasks-bell";
 import { UserMenu } from "./user-menu";
-import { navigationGroups } from "@/lib/erp-navigation";
+import { navigationGroups, type ErpIconName } from "@/lib/erp-navigation";
+
+/** 顶栏「新建业务」快捷入口：跳转对应模块并直接打开新建表单（?new=1） */
+const QUICK_CREATE_ITEMS: Array<{
+  href: string;
+  icon: ErpIconName;
+  label: string;
+  hint: string;
+}> = [
+  { href: "/transfers?new=1", icon: "transfer", label: "新建调拨单", hint: "仓库间调货，双向握手" },
+  { href: "/procurement/orders?new=1", icon: "procurement", label: "新建采购单", hint: "供应商进货与扫码收货" },
+  { href: "/inventory/stocktakes?new=1", icon: "inventory", label: "新建盘点单", hint: "整仓封存盘库" },
+  { href: "/inventory/personal?new=1", icon: "catalog", label: "个人库存单", hint: "领用 / 归还 / 转交" },
+  { href: "/crm/customers?new=1", icon: "crm", label: "客户建档", hint: "新客户档案与回访" },
+];
 
 export function ErpShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  // 快捷键标签按平台显示;SSR 阶段固定 Ctrl,挂载后按实际平台修正,避免水合不一致
+  const [hotkeyLabel, setHotkeyLabel] = useState("Ctrl K");
+  const searchRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      if (/Mac|iPhone|iPad/.test(window.navigator.userAgent)) {
+        setHotkeyLabel("⌘ K");
+      }
+    }, 0);
+    return () => window.clearTimeout(handle);
+  }, []);
+
+  // Ctrl/⌘ + K 聚焦顶栏全局搜索（登录页无外壳，安全跳过）
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // 登录页使用独立布局，不渲染 ERP 外壳
   if (pathname === "/login") {
@@ -19,7 +60,9 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    router.push("/search");
+    const keyword = searchRef.current?.value.trim() ?? "";
+    searchRef.current?.blur();
+    router.push(keyword ? `/search?q=${encodeURIComponent(keyword)}` : "/search");
   }
 
   return (
@@ -79,13 +122,17 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="system-state">
+          <Link
+            className="system-state"
+            href="/system/health"
+            onClick={() => setMobileOpen(false)}
+          >
             <span className="state-dot" />
             <span>
-              <strong>网站端运行正常</strong>
-              <small>数据库等待连接</small>
+              <strong>系统健康检查</strong>
+              <small>查看 API / 数据库 / 审计状态</small>
             </span>
-          </div>
+          </Link>
           <span className="version">JINCHENG ERP · V0.2.0</span>
         </div>
       </aside>
@@ -105,18 +152,51 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
             </button>
             <form className="global-search" onSubmit={submitSearch}>
               <ErpIcon name="search" size={18} />
-              <input aria-label="全局搜索" placeholder="搜索商品、SKU、IMEI、客户或单据" />
-              <kbd>⌘ K</kbd>
+              <input
+                aria-label="全局搜索"
+                placeholder="搜索商品、SKU、IMEI、客户或单据"
+                ref={searchRef}
+              />
+              <kbd>{hotkeyLabel}</kbd>
             </form>
           </div>
           <div className="topbar-actions">
-            <Link className="topbar-create" href="/tasks">
-              <ErpIcon name="plus" size={17} />
-              新建业务
-            </Link>
-            <Link aria-label="消息与异常" className="icon-button has-dot" href="/notifications">
-              <ErpIcon name="bell" />
-            </Link>
+            <div className="quick-create">
+              <button
+                aria-expanded={createOpen}
+                aria-haspopup="menu"
+                className="topbar-create"
+                onClick={() => setCreateOpen((open) => !open)}
+                type="button"
+              >
+                <ErpIcon name="plus" size={17} />
+                新建业务
+              </button>
+              {createOpen ? (
+                <>
+                  <button
+                    aria-label="关闭快捷创建菜单"
+                    className="quick-create-overlay"
+                    onClick={() => setCreateOpen(false)}
+                    type="button"
+                  />
+                  <nav aria-label="快捷创建" className="quick-create-menu">
+                    {QUICK_CREATE_ITEMS.map((item) => (
+                      <Link
+                        href={item.href}
+                        key={item.href}
+                        onClick={() => setCreateOpen(false)}
+                      >
+                        <ErpIcon name={item.icon} size={17} />
+                        <span>{item.label}</span>
+                        <small>{item.hint}</small>
+                      </Link>
+                    ))}
+                  </nav>
+                </>
+              ) : null}
+            </div>
+            <TasksBell />
             <UserMenu />
           </div>
         </header>

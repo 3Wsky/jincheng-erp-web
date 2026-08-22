@@ -10,6 +10,7 @@ import {
   type RoleAccount,
 } from "@jincheng/contracts";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useConfirm, useToast } from "@/components/ui/feedback";
 
 /** 权限资源中文名（与种子 resource 字段对应） */
 const RESOURCE_LABELS: Record<string, string> = {
@@ -165,6 +166,8 @@ type EditorState = { mode: "create" } | { mode: "edit"; role: Role } | null;
  * - DataScope/Field/Approval 三维待签字,不提供编辑。
  */
 export function RolesViewer() {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [roles, setRoles] = useState<Role[] | null>(null);
   const [permissions, setPermissions] = useState<Permission[] | null>(null);
   const [canWrite, setCanWrite] = useState(false);
@@ -206,13 +209,13 @@ export function RolesViewer() {
         const list = RoleAccountListSchema.parse(raw);
         setHoldersByRole((current) => ({ ...current, [role.id]: list.items }));
       } catch (loadError) {
-        window.alert(messageOf(loadError));
+        toast.error(messageOf(loadError));
         setExpandedRoleId(null);
       } finally {
         setHoldersLoading(false);
       }
     },
-    [expandedRoleId, holdersByRole],
+    [expandedRoleId, holdersByRole, toast],
   );
 
   /** 并行加载角色/权限/当前用户(判断管理权限) */
@@ -313,34 +316,40 @@ export function RolesViewer() {
       }
       setEditor(null);
       refresh();
+      toast.success(
+        editor.mode === "create"
+          ? `角色「${formName.trim()}」已创建`
+          : `角色「${formName.trim()}」已保存`,
+      );
     } catch (saveError) {
       setFormError(messageOf(saveError));
     } finally {
       setBusy(false);
     }
-  }, [editor, formCode, formName, formPermissions, permissionIdByCode, refresh]);
+  }, [editor, formCode, formName, formPermissions, permissionIdByCode, refresh, toast]);
 
   const archiveRole = useCallback(
     async (role: Role) => {
-      if (
-        !window.confirm(
-          `确认停用角色「${role.name}」？停用后不能分配给账号，可随时恢复。`,
-        )
-      ) {
-        return;
-      }
+      const confirmed = await confirm({
+        title: `停用角色「${role.name}」？`,
+        description: "停用后不能再分配给账号，已有账号的角色无法停用；可随时恢复。",
+        confirmLabel: "停用角色",
+        tone: "danger",
+      });
+      if (!confirmed) return;
       setBusy(true);
       try {
         await fetchJson(`/api/org/roles/${role.id}/archive`, { method: "POST" });
         setEditor(null);
         refresh();
+        toast.success(`角色「${role.name}」已停用`);
       } catch (archiveError) {
-        window.alert(messageOf(archiveError));
+        toast.error(messageOf(archiveError));
       } finally {
         setBusy(false);
       }
     },
-    [refresh],
+    [refresh, confirm, toast],
   );
 
   const restoreRole = useCallback(
@@ -349,13 +358,14 @@ export function RolesViewer() {
       try {
         await fetchJson(`/api/org/roles/${role.id}/restore`, { method: "POST" });
         refresh();
+        toast.success(`角色「${role.name}」已恢复`);
       } catch (restoreError) {
-        window.alert(messageOf(restoreError));
+        toast.error(messageOf(restoreError));
       } finally {
         setBusy(false);
       }
     },
-    [refresh],
+    [refresh, toast],
   );
 
   if (error) {

@@ -9,6 +9,7 @@ import {
   type FollowupResultValue,
 } from "@jincheng/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useConfirm, useToast } from "@/components/ui/feedback";
 
 const PAGE_SIZE = 20;
 
@@ -90,7 +91,9 @@ interface EmployeeOption {
   name: string;
 }
 
-export function CustomersManager() {
+export function CustomersManager({ autoCreate = false }: { autoCreate?: boolean }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [list, setList] = useState<CustomerList | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -125,6 +128,15 @@ export function CustomersManager() {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(() => setRefreshTick((tick) => tick + 1), []);
+
+  // 顶栏「新建业务」入口:?new=1 到达时直接展开建档表单(仅首次)
+  const autoCreateDone = useRef(false);
+  useEffect(() => {
+    if (!autoCreate || autoCreateDone.current) return;
+    autoCreateDone.current = true;
+    const handle = window.setTimeout(() => setShowCreate(true), 0);
+    return () => window.clearTimeout(handle);
+  }, [autoCreate]);
 
   // 列表加载(搜索防抖 300ms)
   useEffect(() => {
@@ -226,6 +238,7 @@ export function CustomersManager() {
         refresh();
         setDetail(payload);
         setDetailOpen(true);
+        toast.success(`客户「${payload.name}」已建档`);
       } catch (error) {
         const withDuplicate = error as Error & {
           duplicate?: CustomerDuplicate;
@@ -236,7 +249,7 @@ export function CustomersManager() {
         setBusy(null);
       }
     },
-    [createName, createPhone, createSource, createOwner, createRemark, refresh],
+    [createName, createPhone, createSource, createOwner, createRemark, refresh, toast],
   );
 
   const addFollowup = useCallback(async () => {
@@ -264,18 +277,23 @@ export function CustomersManager() {
       setFollowIntent("");
       setFollowNextAt("");
       refresh();
+      toast.success("回访已记录");
     } catch (error) {
       setActionError(messageOf(error));
     } finally {
       setBusy(null);
     }
-  }, [detail, followMethod, followResult, followNote, followIntent, followNextAt, refresh]);
+  }, [detail, followMethod, followResult, followNote, followIntent, followNextAt, refresh, toast]);
 
   const archiveCustomer = useCallback(async () => {
     if (!detail) return;
-    if (!window.confirm(`确认作废客户「${detail.name}」？回访历史保留可追溯。`)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: `作废客户「${detail.name}」？`,
+      description: "作废后档案不可再编辑，回访历史保留可追溯。",
+      confirmLabel: "作废客户",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     setBusy("archive");
     setActionError(null);
     try {
@@ -286,12 +304,13 @@ export function CustomersManager() {
       );
       setDetail(payload);
       refresh();
+      toast.success(`客户「${detail.name}」已作废`);
     } catch (error) {
       setActionError(messageOf(error));
     } finally {
       setBusy(null);
     }
-  }, [detail, refresh]);
+  }, [detail, refresh, confirm, toast]);
 
   const totalPages = list?.totalPages ?? 1;
 
