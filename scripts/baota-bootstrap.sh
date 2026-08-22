@@ -53,18 +53,22 @@ ensure_git() {
 }
 
 ensure_node24() {
+  if [[ -x /usr/local/node24/bin/node ]]; then
+    export ERP_NODE_BIN=/usr/local/node24/bin/node
+    export PATH="/usr/local/node24/bin:$PATH"
+  fi
   if command -v node >/dev/null 2>&1; then
     local major
     major="$(node -p "process.versions.node.split('.')[0]")"
     if (( major >= 24 )); then
       return 0
     fi
-    echo "当前 Node 为 $(node -v)，锦程 ERP 需要 24+。将安装独立 Node 24，不替换现有版本。"
+    echo "当前 PATH 中的 Node 为 $(node -v)，锦程 ERP 需要 24+。将安装独立 Node 24，不替换现有版本。"
   else
     echo "未检测到 Node，正在安装独立 Node 24…"
   fi
 
-  local arch node_arch ver prefix tarball
+  local arch node_arch ver prefix tarball url
   arch="$(uname -m)"
   case "$arch" in
     x86_64) node_arch=x64 ;;
@@ -74,17 +78,37 @@ ensure_node24() {
       exit 5
       ;;
   esac
-  ver="v24.8.0"
+  # 使用当前 LTS 的 tar.gz：旧镜像地址的 .xz 经常下到 HTML，导致 xz: File format not recognized
+  ver="v24.19.0"
   prefix="/usr/local/node24"
-  tarball="node-${ver}-linux-${node_arch}.tar.xz"
+  tarball="node-${ver}-linux-${node_arch}.tar.gz"
+  rm -rf "$prefix"
   mkdir -p "$prefix"
-  command -v xz >/dev/null 2>&1 || install_pkg xz || install_pkg xz-utils || true
-  curl --connect-timeout 15 --max-time 180 --retry 2 --progress-bar \
-    "https://npmmirror.com/mirrors/node/${ver}/${tarball}" -o "/tmp/${tarball}" \
-    || curl --connect-timeout 15 --max-time 180 --retry 2 --progress-bar \
-    "https://nodejs.org/dist/${ver}/${tarball}" -o "/tmp/${tarball}"
-  tar -xJf "/tmp/${tarball}" -C "$prefix" --strip-components=1
   rm -f "/tmp/${tarball}"
+  for url in \
+    "https://cdn.npmmirror.com/binaries/node/${ver}/${tarball}" \
+    "https://npmmirror.com/mirrors/node/${ver}/${tarball}" \
+    "https://nodejs.org/dist/${ver}/${tarball}"; do
+    echo "下载 $url"
+    if curl -fL --connect-timeout 15 --max-time 180 --retry 2 --progress-bar "$url" -o "/tmp/${tarball}"; then
+      break
+    fi
+  done
+  if [[ ! -s "/tmp/${tarball}" ]]; then
+    echo "Node 24 安装包下载失败。" >&2
+    exit 5
+  fi
+  if ! gzip -t "/tmp/${tarball}" 2>/dev/null; then
+    echo "下载到的不是 gzip 包（多半是镜像返回了网页）。文件头：" >&2
+    head -c 200 "/tmp/${tarball}" >&2 || true
+    exit 5
+  fi
+  tar -xzf "/tmp/${tarball}" -C "$prefix" --strip-components=1
+  rm -f "/tmp/${tarball}"
+  if [[ ! -x "$prefix/bin/node" ]]; then
+    echo "Node 24 解压后找不到 $prefix/bin/node" >&2
+    exit 5
+  fi
   export ERP_NODE_BIN="$prefix/bin/node"
   export PATH="$prefix/bin:$PATH"
   echo "已安装 Node $($prefix/bin/node -v)，路径 $ERP_NODE_BIN"
@@ -125,9 +149,15 @@ if (( node_major < 24 )); then
 fi
 
 if [[ ! -d "$src_dir/.git" ]]; then
-  git clone --branch main --depth 1 "$repo_url" "$src_dir"
+  echo "正在克隆仓库（国内若长时间无进度，用 Ctrl+C 后改走镜像）…"
+  if ! git clone --branch main --depth 1 --progress "$repo_url" "$src_dir"; then
+    echo "GitHub 直连失败，改用镜像…"
+    git clone --branch main --depth 1 --progress \
+      "https://gitclone.com/github.com/3Wsky/jincheng-erp-web.git" "$src_dir"
+  fi
 else
-  git -C "$src_dir" fetch --depth 1 origin main
+  echo "已有源码目录，拉取最新 main…"
+  git -C "$src_dir" fetch --depth 1 --progress origin main
   git -C "$src_dir" checkout -B main origin/main
 fi
 
