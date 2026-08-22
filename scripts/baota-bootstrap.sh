@@ -115,18 +115,38 @@ ensure_node24() {
 }
 
 ensure_pnpm() {
-  command -v pnpm >/dev/null 2>&1 && return 0
-  echo "未检测到 pnpm，正在启用 pnpm 11…"
-  if command -v corepack >/dev/null 2>&1; then
-    corepack enable
-    corepack prepare pnpm@11.16.0 --activate
-  else
-    curl -fsSL https://npmmirror.com/mirrors/pnpm/latest/pnpm-linuxstatic-x64 -o /usr/local/bin/pnpm \
-      || npm install -g pnpm@11.16.0
-    chmod +x /usr/local/bin/pnpm 2>/dev/null || true
+  export COREPACK_NPM_REGISTRY="${COREPACK_NPM_REGISTRY:-https://registry.npmmirror.com}"
+  export NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"
+  if command -v pnpm >/dev/null 2>&1; then
+    return 0
   fi
+  echo "未检测到 pnpm，改用国内镜像安装 pnpm 11…"
+
+  if command -v npm >/dev/null 2>&1; then
+    npm config set registry https://registry.npmmirror.com
+    npm install -g pnpm@11.16.0 && return 0
+  fi
+
+  if command -v corepack >/dev/null 2>&1; then
+    corepack enable || true
+    corepack prepare pnpm@11.16.0 --activate && return 0
+  fi
+
+  local pnpm_bin="/usr/local/node24/bin/pnpm"
+  mkdir -p "$(dirname "$pnpm_bin")"
+  for url in \
+    "https://cdn.npmmirror.com/binaries/pnpm/v11.16.0/pnpm-linuxstatic-x64" \
+    "https://registry.npmmirror.com/-/binary/pnpm/v11.16.0/pnpm-linuxstatic-x64" \
+    "https://github.com/pnpm/pnpm/releases/download/v11.16.0/pnpm-linux-x64"; do
+    echo "下载 $url"
+    if curl -fL --connect-timeout 15 --max-time 120 --progress-bar "$url" -o "$pnpm_bin"; then
+      chmod +x "$pnpm_bin"
+      break
+    fi
+  done
+
   command -v pnpm >/dev/null 2>&1 || {
-    echo "pnpm 安装失败。请在宝塔终端执行: npm install -g pnpm@11.16.0" >&2
+    echo "pnpm 安装失败。请执行：npm config set registry https://registry.npmmirror.com && npm install -g pnpm@11.16.0" >&2
     exit 4
   }
 }
@@ -176,6 +196,8 @@ release_id="$(git rev-parse --short HEAD)-$(date -u +%Y%m%dT%H%M%SZ)"
 release_dir="$deploy_root/releases/$release_id"
 
 echo "安装依赖并构建 $release_id"
+export NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"
+pnpm config set registry https://registry.npmmirror.com
 pnpm install --frozen-lockfile
 pnpm db:generate
 pnpm build
