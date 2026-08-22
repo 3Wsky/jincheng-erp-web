@@ -2,7 +2,12 @@
 
 ## 1. 部署结论
 
-本项目复用 `jingcheng-saas/fzlsaas` 已验证的发布模式：
+本项目有两条部署路径，目标目录、端口、PM2 进程和安全约束完全一致：
+
+- **路径 A（GitHub Actions 自动部署）**：复用 `jingcheng-saas/fzlsaas` 已验证的发布模式，需要仓库配置 SSH Secrets（见第 3 节）。
+- **路径 B（宝塔终端首次部署）**：仓库还没有配置 SSH Secrets 时，由运维在宝塔终端直接运行 `scripts/baota-first-deploy.sh` 完成首次上线（见第 3.1 节）。
+
+路径 A 的流程：
 
 ```text
 本地 main → GitHub Actions 质量门禁 → SSH 上传发布包
@@ -11,6 +16,8 @@
 ```
 
 GitHub 只保存代码、Prisma 模型和迁移文件。真实 PostgreSQL 数据、生产 `.env`、数据库备份和管家婆文件全部保存在服务器受控目录，不上传 GitHub。
+
+注意：云端开发 Agent 在未提供 SSH 密钥时无法登录服务器，也不允许使用历史记录中的连接信息；服务器上的操作只能由持有宝塔面板/SSH 权限的运维执行。GitHub Actions 自动部署（路径 A）同样必须先在仓库配置 Secrets 才会生效。
 
 ## 2. 固定端口与目录
 
@@ -38,6 +45,49 @@ GitHub 只保存代码、Prisma 模型和迁移文件。真实 PostgreSQL 数据
 | `ERP_DEPLOY_PATH` | 新增，可选         | 不填时使用 `/www/wwwroot/our/jincheng-erp` |
 
 GitHub 不允许读取旧仓库 Secret 的明文，因此需要从原安全记录重新填入新仓库，或改为组织级 Secret 后授权两个仓库。
+
+## 3.1 路径 B：无 GitHub SSH Secrets 时，在宝塔终端首次部署
+
+仓库尚未配置 `SERVER_HOST` / `SERVER_USER` / `SERVER_SSH_KEY` 时，用 `scripts/baota-first-deploy.sh` 在服务器上直接完成首次部署。脚本幂等，之后每次重跑都会自动 `git pull` 更新代码并走同一套「备份 → 迁移 → PM2 → 健康检查」流程（内部复用 `scripts/server-deploy.sh`）。
+
+**第一步：把仓库和脚本弄上服务器（最短路径二选一）**
+
+- 宝塔 → 网站 → Git（或任意目录）拉取 `https://github.com/3Wsky/jincheng-erp-web.git`，进入仓库目录运行脚本；
+- 或在宝塔终端直接让脚本自己 clone：先把 `scripts/baota-first-deploy.sh` 内容粘贴保存为服务器上任意文件（例如 `/root/baota-first-deploy.sh`），然后：
+
+```bash
+export ERP_GIT_URL=https://github.com/3Wsky/jincheng-erp-web.git
+bash /root/baota-first-deploy.sh
+```
+
+私有仓库 clone 失败时，改用宝塔 Git 功能或 GitHub Deploy Key，不要把 token 写进脚本或仓库。
+
+**第二步：在宝塔终端以 root 运行**
+
+```bash
+cd /path/to/jincheng-erp-web
+chmod +x scripts/baota-first-deploy.sh
+# 可选：ERP_DOMAIN=erp.example.com ERP_GIT_URL=... ./scripts/baota-first-deploy.sh
+./scripts/baota-first-deploy.sh
+```
+
+首次运行会在生成 `shared/.env`（自动填入随机 `SESSION_SECRET` / `CATALOG_WRITE_KEY`）后**安全停止**，提示你：
+
+1. 宝塔 → 数据库 → PostgreSQL 创建数据库 `jincheng_erp` 和同名账号；
+2. 宝塔 → 文件 → `shared/.env` 把 `DATABASE_URL` 改成真实连接串。
+
+完成后再跑一次脚本，即自动构建、备份数据库、执行迁移、PM2 上线并写入宝塔 Nginx 反代（`/www/server/panel/vhost/nginx/域名.conf`，已有 ERP 反代配置时不覆盖）。SSL 不由脚本申请，部署完成后到宝塔 → 网站 → 该站点 → SSL 申请 Let's Encrypt。
+
+脚本的安全约束：永不覆盖已存在的 `shared/.env`、`shared/data`、`backups`；不替换系统全局 Node（fzlsaas 可能在用 Node 22，需要时在宝塔或 nvm 单独装 Node 24 并 `export ERP_NODE_BIN=<绝对路径>`）；不删除或修改其他站点；不打印任何密钥明文。
+
+**以后日常运维（都在宝塔面板里）**
+
+- 配置：文件管理查看/修改 `shared/.env`（权限 600）。
+- 站点：网站管理 Nginx 反代和 SSL 证书。
+- 进程：PM2 管理器查看 `jincheng-erp-web` / `jincheng-erp-api`。
+- 数据库：PostgreSQL 管理 `jincheng_erp`；迁移前备份在 `backups/`。
+- 更新上线：重跑 `scripts/baota-first-deploy.sh`，或配好第 3 节的 Secrets 后走 GitHub Actions（路径 A）。
+- 健康检查：宝塔终端执行 `curl -fsS http://127.0.0.1:3101/api/v1/health`。
 
 ## 4. 宝塔服务器一次性准备
 
