@@ -218,7 +218,9 @@ release_dir="$deploy_root/releases/$release_id"
 
 echo "安装依赖并构建 $release_id"
 export NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"
+export PRISMA_ENGINES_MIRROR="${PRISMA_ENGINES_MIRROR:-https://npmmirror.com/mirrors/prisma}"
 pnpm config set registry https://registry.npmmirror.com
+echo "Prisma 引擎镜像：$PRISMA_ENGINES_MIRROR"
 pnpm install --frozen-lockfile
 pnpm db:generate
 pnpm build
