@@ -12,6 +12,9 @@ env_file="$shared_dir/.env"
 mkdir -p "$shared_dir/data" "$deploy_root/backups" "$deploy_root/releases"
 chmod 700 "$deploy_root/backups"
 
+# 宝塔常见软件路径（PostgreSQL / 面板安装的 Node）
+export PATH="/www/server/pgsql/bin:/www/server/pgsql/14/bin:/www/server/pgsql/15/bin:/www/server/pgsql/16/bin:/usr/local/node24/bin:$PATH"
+
 if [[ -f "$env_file" ]]; then
   while IFS= read -r env_line || [[ -n "$env_line" ]]; do
     env_line="${env_line%$'\r'}"
@@ -26,16 +29,94 @@ if [[ -f "$env_file" ]]; then
   fi
 fi
 
+install_pkg() {
+  local pkg="$1"
+  if command -v yum >/dev/null 2>&1; then
+    yum install -y "$pkg"
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y "$pkg"
+  elif command -v apt-get >/dev/null 2>&1; then
+    apt-get update -y
+    apt-get install -y "$pkg"
+  else
+    echo "无法自动安装 $pkg，请在宝塔软件商店安装。" >&2
+    return 1
+  fi
+}
+
+ensure_git() {
+  command -v git >/dev/null 2>&1 && return 0
+  echo "未检测到 git，正在安装…"
+  install_pkg git
+}
+
+ensure_node24() {
+  if command -v node >/dev/null 2>&1; then
+    local major
+    major="$(node -p "process.versions.node.split('.')[0]")"
+    if (( major >= 24 )); then
+      return 0
+    fi
+    echo "当前 Node 为 $(node -v)，锦程 ERP 需要 24+。将安装独立 Node 24，不替换现有版本。"
+  else
+    echo "未检测到 Node，正在安装独立 Node 24…"
+  fi
+
+  local arch node_arch ver prefix tarball
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64) node_arch=x64 ;;
+    aarch64 | arm64) node_arch=arm64 ;;
+    *)
+      echo "不支持的 CPU 架构：$arch" >&2
+      exit 5
+      ;;
+  esac
+  ver="v24.8.0"
+  prefix="/usr/local/node24"
+  tarball="node-${ver}-linux-${node_arch}.tar.xz"
+  mkdir -p "$prefix"
+  command -v xz >/dev/null 2>&1 || install_pkg xz || install_pkg xz-utils || true
+  curl -fsSL "https://npmmirror.com/mirrors/node/${ver}/${tarball}" -o "/tmp/${tarball}" \
+    || curl -fsSL "https://nodejs.org/dist/${ver}/${tarball}" -o "/tmp/${tarball}"
+  tar -xJf "/tmp/${tarball}" -C "$prefix" --strip-components=1
+  rm -f "/tmp/${tarball}"
+  export ERP_NODE_BIN="$prefix/bin/node"
+  export PATH="$prefix/bin:$PATH"
+  echo "已安装 Node $($prefix/bin/node -v)，路径 $ERP_NODE_BIN"
+}
+
+ensure_pnpm() {
+  command -v pnpm >/dev/null 2>&1 && return 0
+  echo "未检测到 pnpm，正在启用 pnpm 11…"
+  if command -v corepack >/dev/null 2>&1; then
+    corepack enable
+    corepack prepare pnpm@11.16.0 --activate
+  else
+    curl -fsSL https://npmmirror.com/mirrors/pnpm/latest/pnpm-linuxstatic-x64 -o /usr/local/bin/pnpm \
+      || npm install -g pnpm@11.16.0
+    chmod +x /usr/local/bin/pnpm 2>/dev/null || true
+  fi
+  command -v pnpm >/dev/null 2>&1 || {
+    echo "pnpm 安装失败。请在宝塔终端执行: npm install -g pnpm@11.16.0" >&2
+    exit 4
+  }
+}
+
+ensure_git
+ensure_node24
+ensure_pnpm
+
 for command_name in git node pnpm; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
-    echo "服务器缺少命令：$command_name。请在宝塔安装 Node 24、pnpm 11 和 Git。" >&2
+    echo "服务器仍缺少命令：$command_name。" >&2
     exit 4
   fi
 done
 
 node_major="$(node -p "process.versions.node.split('.')[0]")"
 if (( node_major < 24 )); then
-  echo "锦程 ERP 要求 Node.js 24+，当前为 $(node -v)。可在 .env 设置 ERP_NODE_BIN。" >&2
+  echo "锦程 ERP 要求 Node.js 24 或更高版本，当前为 $(node -v)。" >&2
   exit 5
 fi
 
