@@ -20,7 +20,10 @@ interface DrawerProps {
 export function Drawer({ ariaLabel, className, onClose, children }: DrawerProps) {
   const asideRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  // ref 更新放在 effect 里(react-hooks/refs 禁止渲染期写 ref)
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     const layer = pushLayer();
