@@ -78,7 +78,23 @@ mkdir -p /www/wwwroot/our/jincheng-erp/backups
 3. 将 `deploy/nginx-jincheng-erp.conf.example` 的 location 配置加入站点。
 4. 不在安全组开放 3001、3101，它们只监听本机。
 
-## 6. 本地发布命令
+## 6. 宝塔终端一键发布
+
+在宝塔「终端」粘贴（root 即可）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/3Wsky/jincheng-erp-web/main/scripts/baota-bootstrap.sh | bash
+```
+
+国内若 raw 下载失败，改用：
+
+```bash
+mkdir -p /www/wwwroot/our/jincheng-erp && git clone --depth 1 https://github.com/3Wsky/jincheng-erp-web.git /www/wwwroot/our/jincheng-erp/src && bash /www/wwwroot/our/jincheng-erp/src/scripts/baota-bootstrap.sh
+```
+
+第一次会停住，只生成 `shared/.env.example`。在宝塔文件管理填好 `DATABASE_URL`、`SESSION_SECRET`、`CATALOG_WRITE_KEY` 后另存为 `shared/.env`（权限 600），再跑同一条命令。脚本不会覆盖已有 `.env`。
+
+## 7. 本地发布命令
 
 代码合并到 `main` 后，在项目根目录执行：
 
@@ -88,7 +104,7 @@ pnpm release:prod
 
 该命令会拒绝脏工作区和非 `main` 分支，依次执行数据库校验、生成、lint、类型检查、测试和构建，然后推送 `main`。GitHub 收到 push 后自动部署。也可以在 GitHub Actions 页面手工运行 `Deploy Jincheng ERP`。
 
-## 7. 安全与回滚
+## 8. 安全与回滚
 
 - 每次 Prisma 迁移前生成 PostgreSQL custom-format 备份；备份失败则停止发布。
 - 新版本使用独立 release 目录，健康检查通过后才视为成功。
