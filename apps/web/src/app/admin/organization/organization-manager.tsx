@@ -12,7 +12,7 @@ import {
   type Role,
   type Store,
 } from "@jincheng/contracts";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/feedback";
 
 type EmployeeStatusFilter = "" | "ACTIVE" | "LEAVING" | "INACTIVE";
@@ -83,7 +83,12 @@ function suggestPersonalWarehouseId(
   return exact?.id ?? null;
 }
 
-export function OrganizationManager() {
+export function OrganizationManager({
+  autoCreate,
+}: {
+  /** 顶栏「新建业务」入口:?new=warehouse / ?new=employee 直接展开对应表单 */
+  autoCreate?: "warehouse" | "employee";
+}) {
   const toast = useToast();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -104,10 +109,24 @@ export function OrganizationManager() {
   const [error, setError] = useState<string | null>(null);
   const [showCreateOrg, setShowCreateOrg] = useState(false);
   const [showCreateStore, setShowCreateStore] = useState(false);
+  const [showCreateWarehouse, setShowCreateWarehouse] = useState(false);
   const [showCreateEmployee, setShowCreateEmployee] = useState(false);
   const [orgName, setOrgName] = useState("");
   const [renameValue, setRenameValue] = useState("");
-  const [storeForm, setStoreForm] = useState({ code: "", name: "" });
+  const [storeForm, setStoreForm] = useState({
+    code: "",
+    name: "",
+    // 默认同时创建门店仓,建店后即可收货/调拨
+    createWarehouse: true,
+  });
+  const [warehouseForm, setWarehouseForm] = useState({
+    code: "",
+    name: "",
+    storeId: "",
+    ownerEmployeeId: "",
+  });
+  /** 个人仓归属员工下拉:在职员工(独立于下方分页列表的筛选) */
+  const [ownerOptions, setOwnerOptions] = useState<Employee[]>([]);
   const [employeeForm, setEmployeeForm] = useState({
     employeeNo: "",
     name: "",
@@ -209,6 +228,40 @@ export function OrganizationManager() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedOrgId, page, search, statusFilter]);
 
+  // 顶栏「新建业务」入口:?new=warehouse / ?new=employee 到达时展开对应表单(仅首次)
+  const autoCreateDone = useRef(false);
+  useEffect(() => {
+    if (!autoCreate || autoCreateDone.current) return;
+    autoCreateDone.current = true;
+    const handle = window.setTimeout(() => {
+      if (autoCreate === "warehouse") setShowCreateWarehouse(true);
+      else setShowCreateEmployee(true);
+    }, 0);
+    return () => window.clearTimeout(handle);
+  }, [autoCreate]);
+
+  /** 个人仓 tab 打开新增表单时,加载在职员工作为归属候选 */
+  useEffect(() => {
+    if (!showCreateWarehouse || warehouseTab !== "PERSONAL" || !selectedOrgId) {
+      return;
+    }
+    let active = true;
+    void (async () => {
+      try {
+        const payload = await apiFetch(
+          `/api/org/organizations/${selectedOrgId}/employees?page=1&pageSize=100&status=ACTIVE`,
+        );
+        const list = EmployeeListSchema.parse(payload);
+        if (active) setOwnerOptions(list.items);
+      } catch (loadError) {
+        if (active) setError(messageOf(loadError));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [showCreateWarehouse, warehouseTab, selectedOrgId]);
+
   async function runAction(key: string, action: () => Promise<string>) {
     setBusy(key);
     setError(null);
@@ -254,6 +307,7 @@ export function OrganizationManager() {
   async function createStore(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedOrgId) return;
+    const withWarehouse = storeForm.createWarehouse;
     await runAction("create-store", async () => {
       await apiFetch("/api/org/stores", {
         method: "POST",
@@ -261,11 +315,39 @@ export function OrganizationManager() {
           organizationId: selectedOrgId,
           code: storeForm.code,
           name: storeForm.name,
+          createWarehouse: withWarehouse,
         }),
       });
-      setStoreForm({ code: "", name: "" });
+      setStoreForm({ code: "", name: "", createWarehouse: true });
       setShowCreateStore(false);
-      return "门店已创建";
+      return withWarehouse
+        ? `门店已创建，并同时创建门店仓「${storeForm.name.trim()}仓」`
+        : "门店已创建（未创建门店仓）";
+    });
+  }
+
+  async function createWarehouse(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedOrgId) return;
+    await runAction("create-warehouse", async () => {
+      await apiFetch("/api/org/warehouses", {
+        method: "POST",
+        body: JSON.stringify({
+          organizationId: selectedOrgId,
+          code: warehouseForm.code,
+          name: warehouseForm.name,
+          type: warehouseTab,
+          ...(warehouseTab === "STORE"
+            ? { storeId: warehouseForm.storeId }
+            : {}),
+          ...(warehouseTab === "PERSONAL"
+            ? { ownerEmployeeId: warehouseForm.ownerEmployeeId }
+            : {}),
+        }),
+      });
+      setWarehouseForm({ code: "", name: "", storeId: "", ownerEmployeeId: "" });
+      setShowCreateWarehouse(false);
+      return `${WAREHOUSE_TYPE_LABEL[warehouseTab]}「${warehouseForm.name.trim()}」已创建`;
     });
   }
 
@@ -387,7 +469,7 @@ export function OrganizationManager() {
                 <p className="eyebrow">地点</p>
                 <h2>门店与仓库清单</h2>
                 <p className="location-hint">
-                  门店仓对应真实门店，可同步成门店主数据；个人仓单独列出，开通销售账号时再挂到员工；公司总仓 / 售后 / 异常不作为销售归属门店。
+                  各类型仓库可在下方标签内直接「+ 新增仓库」。门店仓对应真实门店，可同步成门店主数据；个人仓创建时即挂归属员工（一人一仓）；公司总仓 / 售后 / 异常不作为销售归属门店。
                 </p>
               </div>
               <div className="heading-actions">
@@ -421,6 +503,25 @@ export function OrganizationManager() {
                   value={storeForm.name}
                   onChange={(name) => setStoreForm({ ...storeForm, name })}
                 />
+                <label className="check-field">
+                  <input
+                    type="checkbox"
+                    checked={storeForm.createWarehouse}
+                    onChange={(event) =>
+                      setStoreForm({
+                        ...storeForm,
+                        createWarehouse: event.target.checked,
+                      })
+                    }
+                  />
+                  <span>
+                    同时创建门店仓（
+                    {storeForm.code.trim()
+                      ? `${storeForm.code.trim()}-WH`
+                      : "门店编码-WH"}
+                    ）
+                  </span>
+                </label>
                 <button
                   className="button small"
                   disabled={busy === "create-store"}
@@ -432,28 +533,114 @@ export function OrganizationManager() {
             ) : null}
 
             <div
-              className="inventory-segmented"
-              role="tablist"
-              aria-label="仓库类型"
-              style={{ marginTop: 14 }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                flexWrap: "wrap",
+                marginTop: 14,
+              }}
             >
-              {WAREHOUSE_TYPE_TABS.map((tab) => {
-                const count = warehouses.filter(
-                  (warehouse) => warehouse.type === tab.type,
-                ).length;
-                return (
-                  <button
-                    key={tab.type}
-                    className={warehouseTab === tab.type ? "active" : ""}
-                    onClick={() => setWarehouseTab(tab.type)}
-                    role="tab"
-                    type="button"
-                  >
-                    {tab.label}（{count}）
-                  </button>
-                );
-              })}
+              <div
+                className="inventory-segmented"
+                role="tablist"
+                aria-label="仓库类型"
+              >
+                {WAREHOUSE_TYPE_TABS.map((tab) => {
+                  const count = warehouses.filter(
+                    (warehouse) => warehouse.type === tab.type,
+                  ).length;
+                  return (
+                    <button
+                      key={tab.type}
+                      className={warehouseTab === tab.type ? "active" : ""}
+                      onClick={() => setWarehouseTab(tab.type)}
+                      role="tab"
+                      type="button"
+                    >
+                      {tab.label}（{count}）
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                className="button secondary"
+                type="button"
+                onClick={() => setShowCreateWarehouse((value) => !value)}
+              >
+                {showCreateWarehouse ? "收起新增仓库" : "+ 新增仓库"}
+              </button>
             </div>
+
+            {showCreateWarehouse ? (
+              <form
+                className="classification-form"
+                onSubmit={createWarehouse}
+                style={{ marginTop: 12 }}
+              >
+                <label>
+                  <span>仓库类型（跟随当前标签）</span>
+                  <input
+                    disabled
+                    readOnly
+                    value={WAREHOUSE_TYPE_LABEL[warehouseTab]}
+                  />
+                </label>
+                <Field
+                  label="仓库编码"
+                  value={warehouseForm.code}
+                  onChange={(code) =>
+                    setWarehouseForm({ ...warehouseForm, code })
+                  }
+                />
+                <Field
+                  label="仓库名称"
+                  value={warehouseForm.name}
+                  onChange={(name) =>
+                    setWarehouseForm({ ...warehouseForm, name })
+                  }
+                />
+                {warehouseTab === "STORE" ? (
+                  <StoreSelect
+                    stores={stores}
+                    value={warehouseForm.storeId}
+                    onChange={(storeId) =>
+                      setWarehouseForm({ ...warehouseForm, storeId })
+                    }
+                    required
+                  />
+                ) : null}
+                {warehouseTab === "PERSONAL" ? (
+                  <label>
+                    <span>归属员工（一人一仓）</span>
+                    <select
+                      required
+                      value={warehouseForm.ownerEmployeeId}
+                      onChange={(event) =>
+                        setWarehouseForm({
+                          ...warehouseForm,
+                          ownerEmployeeId: event.target.value,
+                        })
+                      }
+                    >
+                      <option value="">请选择在职员工</option>
+                      {ownerOptions.map((employee) => (
+                        <option key={employee.id} value={employee.id}>
+                          {employee.name}（{employee.employeeNo}）
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                <button
+                  className="button small"
+                  disabled={busy === "create-warehouse"}
+                  type="submit"
+                >
+                  {busy === "create-warehouse" ? "创建中…" : "创建仓库"}
+                </button>
+              </form>
+            ) : null}
 
             <WarehouseDirectory
               warehouses={warehouses.filter(
@@ -642,8 +829,8 @@ function WarehouseDirectory({
 }) {
   const emptyText =
     tab === "STORE"
-      ? "暂无门店仓。可点「从门店仓生成门店」，或手工新增门店。"
-      : `暂无${WAREHOUSE_TYPE_LABEL[tab]}。`;
+      ? "暂无门店仓。可点「+ 新增仓库」直接创建（新增门店时也会默认带仓），或点「从门店仓生成门店」同步期初导入的仓库。"
+      : `暂无${WAREHOUSE_TYPE_LABEL[tab]}。可点「+ 新增仓库」创建。`;
 
   return (
     <div className="sku-table-wrap" style={{ marginTop: 12 }}>

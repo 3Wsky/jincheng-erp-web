@@ -1,6 +1,12 @@
 import { CatalogManager } from "./catalog-manager";
 
-export default function CatalogProductsPage() {
+export default async function CatalogProductsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ new?: string }>;
+}) {
+  // 顶栏「新建业务」快捷入口:?new=1 直接展开新增商品表单
+  const autoCreate = (await searchParams).new === "1";
   return (
     <main className="catalog-page">
       <header className="page-heading catalog-header">
@@ -16,7 +22,7 @@ export default function CatalogProductsPage() {
           <span><strong>安全导入模式</strong><small>货品导入不等于库存入账</small></span>
         </div>
       </header>
-      <CatalogManager />
+      <CatalogManager autoCreate={autoCreate} />
     </main>
   );
 }

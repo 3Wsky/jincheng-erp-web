@@ -5,7 +5,8 @@
  * 1. 权限码（基于 docs/11-角色权限矩阵.md 首批动作矩阵的暂定映射）
  * 2. 首批角色（系统管理员/老板/店长/库管/财务/销售/人事/运营）
  * 3. 默认组织（锦程科技）
- * 4. 默认门店（总部）
+ * 4. 默认门店（总部）+ 默认仓库（总部仓 HQ-WH / 公司总仓 HQ-COMPANY，
+ *    仅空环境创建；已有仓库——含管家婆期初导入——则跳过）
  * 5. 默认管理员账号（admin / 首次登录后必须改密）
  *
  * 运行：pnpm db:seed
@@ -171,6 +172,35 @@ async function main(): Promise<void> {
       },
     });
     console.log(`[seed] 创建默认门店「${DEFAULT_STORE_NAME}」`);
+  }
+
+  // 3.1 默认仓库：仅在还没有任何仓库的空环境创建（已有仓库——
+  // 含管家婆期初导入的库——则跳过，避免在生产数据上重复插入）。
+  // 没有仓库就无法采购收货/调拨/盘点，空库 seed 后必须可直接开单。
+  const warehouseCount = await database.warehouse.count();
+  if (warehouseCount === 0) {
+    await database.warehouse.createMany({
+      data: [
+        {
+          id: randomUUID(),
+          code: `${DEFAULT_STORE_CODE}-WH`,
+          name: `${DEFAULT_STORE_NAME}仓`,
+          type: "STORE",
+          storeId: store.id,
+        },
+        {
+          id: randomUUID(),
+          code: `${DEFAULT_STORE_CODE}-COMPANY`,
+          name: "公司总仓",
+          type: "COMPANY",
+        },
+      ],
+    });
+    console.log(
+      `[seed] 创建默认仓库「${DEFAULT_STORE_NAME}仓」(门店仓)与「公司总仓」`,
+    );
+  } else {
+    console.log(`[seed] 已存在 ${warehouseCount} 个仓库，跳过默认仓创建`);
   }
 
   // 4. 默认管理员

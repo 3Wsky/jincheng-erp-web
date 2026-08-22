@@ -21,12 +21,14 @@ import {
   CreateOrganizationDto,
   CreateRoleDto,
   CreateStoreDto,
+  CreateWarehouseDto,
   ListEmployeesQueryDto,
   UpdateAccountDto,
   UpdateEmployeeDto,
   UpdateOrganizationDto,
   UpdateRoleDto,
   UpdateStoreDto,
+  UpdateWarehouseDto,
 } from "./organization.dto.js";
 import { OrganizationService } from "./organization.service.js";
 
@@ -103,13 +105,51 @@ export class OrganizationController {
 
   @Post("stores")
   @UseGuards(requirePermissions("organization:write"))
-  @ApiOperation({ summary: "创建门店" })
+  @ApiOperation({
+    summary: "创建门店（默认同时创建配套门店仓，createWarehouse=false 可只建门店）",
+  })
   createStore(
     @Body() body: CreateStoreDto,
     @Req() request: AuthenticatedRequest,
     @Headers("x-request-id") requestId?: string,
   ) {
     return this.organization.createStore(body, this.requestOf(request, requestId));
+  }
+
+  @Post("warehouses")
+  @UseGuards(requirePermissions("organization:write"))
+  @ApiOperation({
+    summary:
+      "创建仓库（API-ORG-021）：门店仓须关联本组织门店；个人仓须归属本组织员工且一人一仓；编码公司范围唯一",
+  })
+  createWarehouse(
+    @Body() body: CreateWarehouseDto,
+    @Req() request: AuthenticatedRequest,
+    @Headers("x-request-id") requestId?: string,
+  ) {
+    return this.organization.createWarehouse(
+      body,
+      this.requestOf(request, requestId),
+    );
+  }
+
+  @Patch("warehouses/:id")
+  @UseGuards(requirePermissions("organization:write"))
+  @ApiOperation({
+    summary:
+      "修改仓库（API-ORG-022）：改名；门店仓可换关联门店；归属员工不可改；不提供物理删除",
+  })
+  updateWarehouse(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() body: UpdateWarehouseDto,
+    @Req() request: AuthenticatedRequest,
+    @Headers("x-request-id") requestId?: string,
+  ) {
+    return this.organization.updateWarehouse(
+      id,
+      body,
+      this.requestOf(request, requestId),
+    );
   }
 
   @Patch("stores/:id")

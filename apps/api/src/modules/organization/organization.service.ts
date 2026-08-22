@@ -15,12 +15,14 @@ import {
   CreateOrganizationDto,
   CreateRoleDto,
   CreateStoreDto,
+  CreateWarehouseDto,
   ListEmployeesQueryDto,
   UpdateAccountDto,
   UpdateEmployeeDto,
   UpdateOrganizationDto,
   UpdateRoleDto,
   UpdateStoreDto,
+  UpdateWarehouseDto,
 } from "./organization.dto.js";
 import {
   dataScopeForRole,
@@ -33,6 +35,11 @@ import {
   moneySeparationConflictMessage,
   permissionSetViolatesMoneySeparation,
 } from "./role-boundaries.js";
+import {
+  personalOwnerConflictMessage,
+  warehouseCreateViolation,
+  warehouseUpdateViolation,
+} from "./warehouse-rules.js";
 
 const employeeInclude = {
   store: { select: { id: true, name: true } },
@@ -149,6 +156,11 @@ export class OrganizationService {
     return { items, total: items.length };
   }
 
+  /**
+   * 创建门店:默认同时创建配套门店仓(type=STORE,code={code}-WH,name={name}仓),
+   * 让空环境建店后即可收货/调拨;createWarehouse=false 可只建门店。
+   * 门店与门店仓同事务写入,任一编码冲突整笔失败(带明确提示)。
+   */
   async createStore(input: CreateStoreDto, request: AuthenticatedRequest) {
     const organization = await this.database.client.organization.findUnique({
       where: { id: input.organizationId },
@@ -157,12 +169,46 @@ export class OrganizationService {
     if (!organization) throw new NotFoundException("组织不存在");
     const code = input.code.trim();
     const name = input.name.trim();
+    const withWarehouse = input.createWarehouse ?? true;
+    const warehouseCode = `${code}-WH`;
+    const warehouseName = `${name}仓`;
     const id = randomUUID();
+    const warehouseId = randomUUID();
     try {
       await this.database.client.$transaction([
         this.database.client.store.create({
           data: { id, organizationId: input.organizationId, code, name },
         }),
+        ...(withWarehouse
+          ? [
+              this.database.client.warehouse.create({
+                data: {
+                  id: warehouseId,
+                  code: warehouseCode,
+                  name: warehouseName,
+                  type: "STORE" as const,
+                  storeId: id,
+                },
+              }),
+              this.database.client.auditLog.create({
+                data: {
+                  actorUserId: request.user.userId,
+                  action: "warehouse.create",
+                  resource: "warehouse",
+                  resourceId: warehouseId,
+                  requestId: request.requestId,
+                  afterData: {
+                    organizationId: input.organizationId,
+                    code: warehouseCode,
+                    name: warehouseName,
+                    type: "STORE",
+                    storeId: id,
+                    createdWithStore: true,
+                  },
+                },
+              }),
+            ]
+          : []),
         this.database.client.auditLog.create({
           data: {
             actorUserId: request.user.userId,
@@ -170,12 +216,30 @@ export class OrganizationService {
             resource: "store",
             resourceId: id,
             requestId: request.requestId,
-            afterData: { organizationId: input.organizationId, code, name },
+            afterData: {
+              organizationId: input.organizationId,
+              code,
+              name,
+              warehouseCreated: withWarehouse,
+            },
           },
         }),
       ]);
     } catch (error) {
-      throwKnownConflict(error, "该门店编码在当前组织下已存在");
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        // Store 唯一键含 organizationId,Warehouse 唯一键仅 code,据此区分冲突来源
+        const target = String(error.meta?.target ?? "");
+        if (withWarehouse && !target.includes("organizationId")) {
+          throw new ConflictException(
+            `门店仓编码「${warehouseCode}」已被占用,门店与门店仓均未创建;请换一个门店编码,或取消勾选「同时创建门店仓」`,
+          );
+        }
+        throw new ConflictException("该门店编码在当前组织下已存在");
+      }
+      throw error;
     }
     return this.database.client.store.findUniqueOrThrow({ where: { id } });
   }
@@ -250,6 +314,193 @@ export class OrganizationService {
       serialCount: warehouse._count.serials,
     }));
     return { items, total: items.length };
+  }
+
+  /**
+   * 创建仓库(API-ORG-021,organization:write):
+   * - STORE 须关联本组织门店;PERSONAL 须归属本组织员工且一人一仓;
+   * - COMPANY/AFTER_SALES/ABNORMAL 不关联门店/员工;
+   * - 编码公司范围唯一(冲突 409);同事务写审计 warehouse.create。
+   */
+  async createWarehouse(input: CreateWarehouseDto, request: AuthenticatedRequest) {
+    const organization = await this.database.client.organization.findUnique({
+      where: { id: input.organizationId },
+      select: { id: true },
+    });
+    if (!organization) throw new NotFoundException("组织不存在");
+
+    const violation = warehouseCreateViolation({
+      type: input.type,
+      storeId: input.storeId ?? null,
+      ownerEmployeeId: input.ownerEmployeeId ?? null,
+    });
+    if (violation) throw new UnprocessableEntityException(violation);
+
+    const storeId = input.type === "STORE" ? (input.storeId ?? null) : null;
+    const ownerEmployeeId =
+      input.type === "PERSONAL" ? (input.ownerEmployeeId ?? null) : null;
+
+    if (storeId) {
+      const store = await this.database.client.store.findUnique({
+        where: { id: storeId },
+        select: { id: true, organizationId: true },
+      });
+      if (!store) throw new NotFoundException("门店不存在");
+      if (store.organizationId !== input.organizationId) {
+        throw new BadRequestException("门店不属于该组织，无法关联仓库");
+      }
+    }
+
+    if (ownerEmployeeId) {
+      const employee = await this.database.client.employee.findUnique({
+        where: { id: ownerEmployeeId },
+        select: { id: true, organizationId: true, status: true },
+      });
+      if (!employee) throw new NotFoundException("员工不存在");
+      if (employee.organizationId !== input.organizationId) {
+        throw new BadRequestException("员工不属于该组织，无法归属个人仓");
+      }
+      if (employee.status === "INACTIVE") {
+        throw new UnprocessableEntityException("已停用的员工不能新建个人仓");
+      }
+      // 一人一仓,与 sales-assignment 的"禁止抢占他人个人仓"同源
+      const existingPersonal = await this.database.client.warehouse.findMany({
+        where: { type: "PERSONAL", ownerEmployeeId },
+        select: { name: true, ownerEmployeeId: true },
+      });
+      const conflict = personalOwnerConflictMessage(
+        ownerEmployeeId,
+        existingPersonal,
+      );
+      if (conflict) throw new UnprocessableEntityException(conflict);
+    }
+
+    const code = input.code.trim();
+    const name = input.name.trim();
+    const id = randomUUID();
+    try {
+      await this.database.client.$transaction([
+        this.database.client.warehouse.create({
+          data: {
+            id,
+            code,
+            name,
+            type: input.type,
+            storeId,
+            ownerEmployeeId,
+          },
+        }),
+        this.database.client.auditLog.create({
+          data: {
+            actorUserId: request.user.userId,
+            action: "warehouse.create",
+            resource: "warehouse",
+            resourceId: id,
+            requestId: request.requestId,
+            afterData: {
+              organizationId: input.organizationId,
+              code,
+              name,
+              type: input.type,
+              storeId,
+              ownerEmployeeId,
+            },
+          },
+        }),
+      ]);
+    } catch (error) {
+      throwKnownConflict(
+        error,
+        `仓库编码「${code}」已存在（仓库编码公司范围内唯一）`,
+      );
+    }
+    return this.warehouseDetail(id);
+  }
+
+  /**
+   * 修改仓库(API-ORG-022,organization:write):可改名;门店仓可换关联门店;
+   * 归属员工不可改(避免抢占他人个人仓,调整走销售账号地点划分);禁止物理删除。
+   */
+  async updateWarehouse(
+    id: string,
+    input: UpdateWarehouseDto,
+    request: AuthenticatedRequest,
+  ) {
+    const before = await this.database.client.warehouse.findUnique({
+      where: { id },
+      select: { id: true, name: true, type: true, storeId: true },
+    });
+    if (!before) throw new NotFoundException("仓库不存在");
+
+    const changingStoreId =
+      input.storeId !== undefined && input.storeId !== before.storeId;
+    const violation = warehouseUpdateViolation({
+      type: before.type,
+      changingStoreId,
+    });
+    if (violation) throw new UnprocessableEntityException(violation);
+
+    if (changingStoreId && input.storeId) {
+      const store = await this.database.client.store.findUnique({
+        where: { id: input.storeId },
+        select: { id: true },
+      });
+      if (!store) throw new NotFoundException("门店不存在");
+    }
+
+    const data: Prisma.WarehouseUpdateInput = {};
+    if (input.name !== undefined) data.name = input.name.trim();
+    if (changingStoreId && input.storeId) {
+      data.store = { connect: { id: input.storeId } };
+    }
+
+    await this.database.client.$transaction([
+      this.database.client.warehouse.update({ where: { id }, data }),
+      this.database.client.auditLog.create({
+        data: {
+          actorUserId: request.user.userId,
+          action: "warehouse.update",
+          resource: "warehouse",
+          resourceId: id,
+          requestId: request.requestId,
+          beforeData: { name: before.name, storeId: before.storeId },
+          afterData: {
+            name: input.name !== undefined ? input.name.trim() : before.name,
+            storeId: changingStoreId ? input.storeId : before.storeId,
+          },
+        },
+      }),
+    ]);
+    return this.warehouseDetail(id);
+  }
+
+  /** 单仓库返回(与 listWarehouses 条目同构,OrgWarehouseSchema) */
+  private async warehouseDetail(id: string) {
+    const warehouse = await this.database.client.warehouse.findUnique({
+      where: { id },
+      include: {
+        store: { select: { name: true } },
+        _count: { select: { serials: true } },
+      },
+    });
+    if (!warehouse) throw new NotFoundException("仓库不存在");
+    const owner = warehouse.ownerEmployeeId
+      ? await this.database.client.employee.findUnique({
+          where: { id: warehouse.ownerEmployeeId },
+          select: { name: true },
+        })
+      : null;
+    return {
+      id: warehouse.id,
+      code: warehouse.code,
+      name: warehouse.name,
+      type: warehouse.type,
+      storeId: warehouse.storeId,
+      storeName: warehouse.store?.name ?? null,
+      ownerEmployeeId: warehouse.ownerEmployeeId,
+      ownerEmployeeName: owner?.name ?? null,
+      serialCount: warehouse._count.serials,
+    };
   }
 
   /**

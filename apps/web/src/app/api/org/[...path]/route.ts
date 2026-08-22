@@ -9,6 +9,7 @@ const TOKEN_COOKIE = "erp_session";
 const ALLOWED_PREFIXES = new Set([
   "organizations",
   "stores",
+  "warehouses",
   "employees",
   "accounts",
   "roles",
@@ -24,7 +25,7 @@ function apiBaseUrl(): string {
 
 /**
  * 组织中心 BFF 代理：把 /api/org/* 转发到后端根路径（organizations、stores、
- * employees、accounts、roles、permissions），并携带登录 Cookie 中的令牌。
+ * warehouses、employees、accounts、roles、permissions），并携带登录 Cookie 中的令牌。
  * 后端按 organization:read/write、account:write、role:read 鉴权。
  */
 async function proxy(

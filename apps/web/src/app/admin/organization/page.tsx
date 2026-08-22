@@ -6,7 +6,17 @@ export const metadata: Metadata = {
   description: "维护组织、门店、员工档案与登录账号（REQ-AUTH、AC-F-001/002）",
 };
 
-export default function OrganizationAdminPage() {
+export default async function OrganizationAdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ new?: string }>;
+}) {
+  // 顶栏「新建业务」快捷入口:?new=warehouse / ?new=employee 直接展开对应表单
+  const requested = (await searchParams).new;
+  const autoCreate =
+    requested === "warehouse" || requested === "employee"
+      ? requested
+      : undefined;
   return (
     <main className="catalog-page">
       <header className="page-heading catalog-header">
@@ -29,7 +39,7 @@ export default function OrganizationAdminPage() {
           </span>
         </div>
       </header>
-      <OrganizationManager />
+      <OrganizationManager autoCreate={autoCreate} />
     </main>
   );
 }

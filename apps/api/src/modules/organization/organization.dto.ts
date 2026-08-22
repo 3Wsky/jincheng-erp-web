@@ -75,6 +75,64 @@ export class CreateStoreDto {
   @MinLength(1)
   @MaxLength(100)
   name!: string;
+
+  /** 同时创建门店仓(type=STORE,code={code}-WH,name={name}仓);默认 true */
+  @IsOptional()
+  @IsBoolean()
+  createWarehouse?: boolean;
+}
+
+export enum WarehouseTypeDto {
+  COMPANY = "COMPANY",
+  STORE = "STORE",
+  PERSONAL = "PERSONAL",
+  AFTER_SALES = "AFTER_SALES",
+  ABNORMAL = "ABNORMAL",
+}
+
+/** 创建仓库(API-ORG-021):类型约束见 warehouse-rules.ts */
+export class CreateWarehouseDto {
+  @IsUUID()
+  organizationId!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(50)
+  code!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  name!: string;
+
+  @IsEnum(WarehouseTypeDto)
+  type!: WarehouseTypeDto;
+
+  /** STORE 必填:关联门店(须属于该组织) */
+  @IsOptional()
+  @IsUUID()
+  storeId?: string;
+
+  /** PERSONAL 必填:归属员工(须属于该组织,一人一仓) */
+  @IsOptional()
+  @IsUUID()
+  ownerEmployeeId?: string;
+}
+
+/**
+ * 修改仓库(API-ORG-022):仅改名与门店仓换关联门店;
+ * 不提供归属员工字段(避免抢占他人个人仓);仓库禁止物理删除。
+ */
+export class UpdateWarehouseDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  name?: string;
+
+  @IsOptional()
+  @IsUUID()
+  storeId?: string;
 }
 
 export class UpdateStoreDto {
