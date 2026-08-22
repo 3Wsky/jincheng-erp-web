@@ -3,6 +3,8 @@
 # 不会覆盖 shared/.env、shared/data、backups。
 set -Eeuo pipefail
 
+echo "锦程 ERP 宝塔发布开始 $(date '+%F %T')"
+
 deploy_root="${ERP_PATH:-/www/wwwroot/our/jincheng-erp}"
 repo_url="${ERP_REPO_URL:-https://github.com/3Wsky/jincheng-erp-web.git}"
 src_dir="$deploy_root/src"
@@ -77,8 +79,10 @@ ensure_node24() {
   tarball="node-${ver}-linux-${node_arch}.tar.xz"
   mkdir -p "$prefix"
   command -v xz >/dev/null 2>&1 || install_pkg xz || install_pkg xz-utils || true
-  curl -fsSL "https://npmmirror.com/mirrors/node/${ver}/${tarball}" -o "/tmp/${tarball}" \
-    || curl -fsSL "https://nodejs.org/dist/${ver}/${tarball}" -o "/tmp/${tarball}"
+  curl --connect-timeout 15 --max-time 180 --retry 2 --progress-bar \
+    "https://npmmirror.com/mirrors/node/${ver}/${tarball}" -o "/tmp/${tarball}" \
+    || curl --connect-timeout 15 --max-time 180 --retry 2 --progress-bar \
+    "https://nodejs.org/dist/${ver}/${tarball}" -o "/tmp/${tarball}"
   tar -xJf "/tmp/${tarball}" -C "$prefix" --strip-components=1
   rm -f "/tmp/${tarball}"
   export ERP_NODE_BIN="$prefix/bin/node"
