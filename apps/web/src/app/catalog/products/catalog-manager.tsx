@@ -6,7 +6,14 @@ import {
   type CatalogImportBatch,
   type CatalogProduct,
 } from "@jincheng/contracts";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useToast } from "@/components/ui/feedback";
 
 interface OrganizationOption {
@@ -35,7 +42,7 @@ const emptyProductForm = {
   serialManaged: true,
 };
 
-export function CatalogManager() {
+export function CatalogManager({ autoCreate = false }: { autoCreate?: boolean }) {
   const toast = useToast();
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [imports, setImports] = useState<CatalogImportBatch[]>([]);
@@ -89,6 +96,15 @@ export function CatalogManager() {
       active = false;
     };
   }, [applySnapshot, search, status]);
+
+  // 顶栏「新建业务」入口:?new=1 到达时直接展开新增商品表单(仅首次)
+  const autoCreateDone = useRef(false);
+  useEffect(() => {
+    if (!autoCreate || autoCreateDone.current) return;
+    autoCreateDone.current = true;
+    const handle = window.setTimeout(() => setShowCreate(true), 0);
+    return () => window.clearTimeout(handle);
+  }, [autoCreate]);
 
   const counts = useMemo(
     () => ({

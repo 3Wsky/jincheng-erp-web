@@ -9,7 +9,7 @@ import {
   type Role,
   type RoleAccount,
 } from "@jincheng/contracts";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConfirm, useToast } from "@/components/ui/feedback";
 
 /** 权限资源中文名（与种子 resource 字段对应） */
@@ -165,7 +165,7 @@ type EditorState = { mode: "create" } | { mode: "edit"; role: Role } | null;
  * - 内置角色(isSystem)锁定——权限由种子脚本权威管理,防误改破坏钱账分离等已确认规则;
  * - DataScope/Field/Approval 三维待签字,不提供编辑。
  */
-export function RolesViewer() {
+export function RolesViewer({ autoCreate = false }: { autoCreate?: boolean }) {
   const toast = useToast();
   const confirm = useConfirm();
   const [roles, setRoles] = useState<Role[] | null>(null);
@@ -275,6 +275,15 @@ export function RolesViewer() {
     setFormPermissions(new Set(role.permissions));
     setFormError(null);
   }, []);
+
+  // 顶栏「新建业务」入口:?new=1 且当前用户有 role:write 时直接展开编辑器(仅首次)
+  const autoCreateDone = useRef(false);
+  useEffect(() => {
+    if (!autoCreate || autoCreateDone.current || loading || !canWrite) return;
+    autoCreateDone.current = true;
+    const handle = window.setTimeout(() => openCreate(), 0);
+    return () => window.clearTimeout(handle);
+  }, [autoCreate, loading, canWrite, openCreate]);
 
   const togglePermission = useCallback((code: string) => {
     setFormPermissions((current) => {

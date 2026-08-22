@@ -40,6 +40,17 @@ const ORG_READ_METHODS = [
   "listWarehouses",
   "listEmployees",
 ];
+const ORG_WRITE_METHODS = [
+  "createOrganization",
+  "updateOrganization",
+  "createStore",
+  "updateStore",
+  "createWarehouse",
+  "updateWarehouse",
+  "createEmployee",
+  "updateEmployee",
+  "syncStoresFromWarehouses",
+];
 const ROLE_WRITE_METHODS = ["createRole", "updateRole", "archiveRole", "restoreRole"];
 const ACCOUNT_WRITE_METHODS = ["createAccount", "updateAccount"];
 
@@ -51,6 +62,24 @@ describe("OrganizationController 鉴权装配", () => {
   it.each(ORG_READ_METHODS)("组织读接口 %s 要求 organization:read", (method) => {
     expect(permissionCodes(methodGuards(method))).toContain("organization:read");
   });
+
+  it.each(ORG_WRITE_METHODS)(
+    "组织写接口 %s 要求 organization:write",
+    (method) => {
+      expect(permissionCodes(methodGuards(method))).toContain(
+        "organization:write",
+      );
+    },
+  );
+
+  it.each(["createWarehouse", "updateWarehouse"])(
+    "仓库写接口 %s 不接受 organization:read 越权",
+    (method) => {
+      expect(permissionCodes(methodGuards(method))).not.toContain(
+        "organization:read",
+      );
+    },
+  );
 
   it.each(ROLE_READ_METHODS)("角色读接口 %s 要求 role:read", (method) => {
     expect(permissionCodes(methodGuards(method))).toContain("role:read");

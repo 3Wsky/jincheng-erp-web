@@ -280,7 +280,30 @@ export const CreateStoreSchema = z.object({
   organizationId: z.uuid(),
   code: z.string().trim().min(1).max(50),
   name: z.string().trim().min(1).max(100),
+  /** 同时创建门店仓(type=STORE,code={code}-WH,name={name}仓);默认 true */
+  createWarehouse: z.boolean().optional(),
 });
+
+/**
+ * 创建仓库(API-ORG-021):STORE 须关联门店;PERSONAL 须归属员工(一人一仓);
+ * COMPANY/AFTER_SALES/ABNORMAL 不带门店/员工;编码公司范围唯一。
+ */
+export const CreateWarehouseSchema = z.object({
+  organizationId: z.uuid(),
+  code: z.string().trim().min(1).max(50),
+  name: z.string().trim().min(1).max(100),
+  type: WarehouseTypeSchema,
+  storeId: z.uuid().optional(),
+  ownerEmployeeId: z.uuid().optional(),
+});
+
+/** 修改仓库(API-ORG-022):改名;门店仓可换关联门店;归属员工不可改;禁止物理删除 */
+export const UpdateWarehouseSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100).optional(),
+    storeId: z.uuid().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, "至少提供一个待修改字段");
 
 export const CreateEmployeeSchema = z.object({
   organizationId: z.uuid(),
@@ -384,6 +407,8 @@ export type EmployeeList = z.infer<typeof EmployeeListSchema>;
 export type CreateOrganization = z.input<typeof CreateOrganizationSchema>;
 export type UpdateOrganization = z.input<typeof UpdateOrganizationSchema>;
 export type CreateStore = z.input<typeof CreateStoreSchema>;
+export type CreateWarehouse = z.input<typeof CreateWarehouseSchema>;
+export type UpdateWarehouse = z.input<typeof UpdateWarehouseSchema>;
 export type CreateEmployee = z.input<typeof CreateEmployeeSchema>;
 export type UpdateEmployee = z.input<typeof UpdateEmployeeSchema>;
 export type CreateAccount = z.input<typeof CreateAccountSchema>;

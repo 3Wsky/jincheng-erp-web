@@ -7,7 +7,13 @@ export const metadata: Metadata = {
     "角色权限管理台：内置角色锁定（seed 权威），管理员可创建/配置/停用自定义角色；DataScope/Field/Approval 维度待签字",
 };
 
-export default function AdminRolesPage() {
+export default async function AdminRolesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ new?: string }>;
+}) {
+  // 顶栏「新建业务」快捷入口:?new=1 直接展开新建自定义角色编辑器
+  const autoCreate = (await searchParams).new === "1";
   return (
     <main className="catalog-page">
       <header className="page-heading catalog-header">
@@ -31,7 +37,7 @@ export default function AdminRolesPage() {
           </span>
         </div>
       </header>
-      <RolesViewer />
+      <RolesViewer autoCreate={autoCreate} />
     </main>
   );
 }

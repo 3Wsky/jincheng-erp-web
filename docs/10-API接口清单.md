@@ -54,7 +54,7 @@
 | API-ORG-002  | `POST /organizations`                        | 创建组织                                       | VERIFY   |
 | API-ORG-003  | `PATCH /organizations/{id}`                  | 修改组织名称                                   | VERIFY   |
 | API-ORG-004  | `GET /organizations/{id}/stores`             | 门店列表                                       | VERIFY   |
-| API-ORG-005  | `POST /stores`                               | 创建门店                                       | VERIFY   |
+| API-ORG-005  | `POST /stores`                               | 创建门店；默认同时创建配套门店仓（type=STORE，code=`{门店编码}-WH`），`createWarehouse=false` 可只建门店；仓库编码冲突整笔事务失败（2026-08-22） | VERIFY   |
 | API-ORG-006  | `PATCH /stores/{id}`                         | 修改门店                                       | VERIFY   |
 | API-ORG-007  | `GET /organizations/{id}/employees`          | 分页查询员工                                   | VERIFY   |
 | API-ORG-008  | `POST /employees`                            | 创建员工档案                                   | VERIFY   |
@@ -70,6 +70,8 @@
 | API-ORG-018  | `POST /roles/{id}/restore`                   | 恢复已停用自定义角色                           | VERIFY   |
 | API-ORG-019  | `GET /organizations/{id}/warehouses`         | 地点清单：全部仓库（含个人仓），供组织页按类型分组 | VERIFY   |
 | API-ORG-020  | `GET /roles/{id}/accounts`                   | 指定角色的持有账号清单（核对谁有该权限，role:read） | VERIFY   |
+| API-ORG-021  | `POST /warehouses`                           | 创建仓库（organization:write，2026-08-22）：STORE 须关联本组织门店；PERSONAL 须归属本组织员工且一人一仓（422）；COMPANY/AFTER_SALES/ABNORMAL 不带门店/员工；编码公司范围唯一（409）；同事务审计 warehouse.create | VERIFY   |
+| API-ORG-022  | `PATCH /warehouses/{id}`                     | 修改仓库（organization:write）：改名；门店仓可换关联门店；归属员工不可改（防抢占个人仓，调整走销售账号地点划分）；不提供物理删除 | VERIFY   |
 | API-INV-001  | `GET /inventory/overview`                    | 仓库总览：按仓库聚合序列号，区分公司/个人      | VERIFY   |
 | API-INV-002  | `GET /inventory/warehouses/{id}/serials`     | 指定仓库序列号明细（分页，支持 SKU/IMEI/SN 搜索） | VERIFY   |
 | API-INV-003  | `GET /inventory/search`                      | 全局查货明细：一个关键字跨仓匹配 IMEI 主/副、SN、SKU 编码/名称、单/多条码、品牌与型号（支持连写容错：mate80promax 可命中 Mate 80 Pro Max）；支持状态/仓库/SKU 过滤，返回分页结果 + 全量状态分布聚合（AC-F-004） | VERIFY   |

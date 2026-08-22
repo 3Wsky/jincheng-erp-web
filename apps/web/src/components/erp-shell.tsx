@@ -8,18 +8,28 @@ import { TasksBell } from "./tasks-bell";
 import { UserMenu } from "./user-menu";
 import { navigationGroups, type ErpIconName } from "@/lib/erp-navigation";
 
-/** 顶栏「新建业务」快捷入口：跳转对应模块并直接打开新建表单（?new=1） */
+/**
+ * 顶栏「新建业务」快捷入口：跳转对应模块并直接打开新建表单（?new=…）。
+ * permission 为空的入口全员可见；有值时按 /api/auth/me 权限码过滤展示
+ * （仅控制展示，服务端仍逐请求鉴权；ADMIN 持有全部权限码故全部可见）。
+ */
 const QUICK_CREATE_ITEMS: Array<{
   href: string;
   icon: ErpIconName;
   label: string;
   hint: string;
+  permission?: string;
 }> = [
-  { href: "/transfers?new=1", icon: "transfer", label: "新建调拨单", hint: "仓库间调货，双向握手" },
-  { href: "/procurement/orders?new=1", icon: "procurement", label: "新建采购单", hint: "供应商进货与扫码收货" },
-  { href: "/inventory/stocktakes?new=1", icon: "inventory", label: "新建盘点单", hint: "整仓封存盘库" },
+  { href: "/transfers?new=1", icon: "transfer", label: "新建调拨单", hint: "仓库间调货，双向握手", permission: "transfer:write" },
+  { href: "/procurement/orders?new=1", icon: "procurement", label: "新建采购单", hint: "供应商进货与扫码收货", permission: "procurement:write" },
+  { href: "/inventory/stocktakes?new=1", icon: "inventory", label: "新建盘点单", hint: "整仓封存盘库", permission: "inventory:write" },
   { href: "/inventory/personal?new=1", icon: "catalog", label: "个人库存单", hint: "领用 / 归还 / 转交" },
-  { href: "/crm/customers?new=1", icon: "crm", label: "客户建档", hint: "新客户档案与回访" },
+  { href: "/crm/customers?new=1", icon: "crm", label: "客户建档", hint: "新客户档案与回访", permission: "customer:write" },
+  { href: "/catalog/products?new=1", icon: "catalog", label: "新建商品", hint: "商品主档与首个 SKU", permission: "catalog:write" },
+  { href: "/admin/organization?new=warehouse", icon: "organization", label: "新增门店/仓库", hint: "门店仓 / 个人仓 / 公司总仓", permission: "organization:write" },
+  { href: "/admin/organization?new=employee", icon: "organization", label: "新增员工", hint: "员工档案与登录账号", permission: "organization:write" },
+  { href: "/admin/roles?new=1", icon: "shield", label: "自定义角色", hint: "按模块勾选权限", permission: "role:write" },
+  { href: "/procurement/orders?new=1&supplier=1", icon: "procurement", label: "新建供应商", hint: "采购新建抽屉内可先快捷创建供应商", permission: "procurement:write" },
 ];
 
 export function ErpShell({ children }: { children: React.ReactNode }) {
@@ -29,7 +39,33 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
   const [createOpen, setCreateOpen] = useState(false);
   // 快捷键标签按平台显示;SSR 阶段固定 Ctrl,挂载后按实际平台修正,避免水合不一致
   const [hotkeyLabel, setHotkeyLabel] = useState("Ctrl K");
+  // 当前用户权限码:未加载完(null)时先展示全部入口,服务端仍逐请求鉴权
+  const [permissions, setPermissions] = useState<string[] | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/auth/me", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { permissions?: string[] } | null) => {
+        if (active && Array.isArray(payload?.permissions)) {
+          setPermissions(payload.permissions);
+        }
+      })
+      .catch(() => {
+        // 后端不可用时保持全部入口展示(服务端兜底鉴权)
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const quickCreateItems = QUICK_CREATE_ITEMS.filter(
+    (item) =>
+      !item.permission ||
+      permissions === null ||
+      permissions.includes(item.permission),
+  );
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -181,10 +217,10 @@ export function ErpShell({ children }: { children: React.ReactNode }) {
                     type="button"
                   />
                   <nav aria-label="快捷创建" className="quick-create-menu">
-                    {QUICK_CREATE_ITEMS.map((item) => (
+                    {quickCreateItems.map((item) => (
                       <Link
                         href={item.href}
-                        key={item.href}
+                        key={item.label}
                         onClick={() => setCreateOpen(false)}
                       >
                         <ErpIcon name={item.icon} size={17} />
