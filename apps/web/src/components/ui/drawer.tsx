@@ -20,7 +20,10 @@ interface DrawerProps {
 export function Drawer({ ariaLabel, className, onClose, children }: DrawerProps) {
   const asideRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     const layer = pushLayer();
